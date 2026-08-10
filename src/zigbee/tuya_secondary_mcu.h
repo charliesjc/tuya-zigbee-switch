@@ -1,0 +1,75 @@
+#ifndef _TUYA_SECONDARY_MCU_H_
+#define _TUYA_SECONDARY_MCU_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+/*
+ * Tuya Zigbee module / secondary MCU framing as seen in issue #387
+ * and the Tuya module-UART reference.
+ *
+ * The wire encoding is a short command frame with a 55 AA magic header.
+ * For the captured Avatto dimmer logs the payload layout is:
+ *
+ *   55 AA 02 01 00 04 00 05 01 01 00 01 01 0F
+ *   |--- magic ---| |-- seq/chip? --| cmd | dlen | dpid | type | vlen | value | checksum |
+ *
+ * The first 5 bytes are fixed per transport and are not actively interpreted by
+ * the command layer. The command layer only uses the logical DP payload bytes:
+ *   - cmd = 0x04 (write request, Zigbee -> MCU)
+ *   - cmd = 0x06 (confirmation / status response, MCU -> Zigbee)
+ *   - dlen = payload length in bytes after the cmd and before the crc byte
+ *   - dpid = DP identifier (1 byte)
+ *   - type = DP encoding type (bool 0x01, int 0x02, enum 0x04)
+ *   - value length = little-endian 2 bytes
+ *   - value bytes = dlen payload value
+ */
+
+typedef enum
+{
+  TUYA_DP_TYPE_BOOL = 0x01,
+  TUYA_DP_TYPE_VALUE = 0x02,
+  TUYA_DP_TYPE_ENUM = 0x04,
+} tuya_dp_type_t;
+
+typedef enum
+{
+  TUYA_MCU_CMD_WRITE = 0x04,
+  TUYA_MCU_CMD_REPORT = 0x06,
+} tuya_mcu_cmd_t;
+
+typedef struct
+{
+  uint8_t responder_seq;
+  uint8_t direction; /* 0x01 for module->MCU, 0x00 for MCU->module */
+  uint8_t cmd;
+  uint8_t dpid;
+  uint8_t dp_type;
+  uint16_t value_len;
+  uint8_t value[16];
+  uint8_t checksum;
+} tuya_secondary_mcu_frame_t;
+
+/*
+ * Encode one frame for transmission to the secondary MCU.
+ * Returns 0 on success or -1 on insufficient buffer / malformed input.
+ */
+int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
+                                    uint8_t *out, uint16_t out_len,
+                                    uint16_t *written);
+
+/*
+ * Decode a raw UART frame and extract the logical Tuya data payload.
+ */
+int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
+                                    tuya_secondary_mcu_frame_t *frame);
+
+/*
+ * Helper used by the application to place a DP write into the UART transport.
+ */
+int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
+                               const void *value, uint16_t value_len,
+                               uint8_t *out, uint16_t out_len,
+                               uint16_t *written);
+
+#endif
