@@ -32,8 +32,8 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
   frame_buf[idx++] = 0x55;
   frame_buf[idx++] = 0xAA;
   frame_buf[idx++] = 0x02;
-  frame_buf[idx++] = frame->responder_seq;
-  frame_buf[idx++] = 0x00;
+  frame_buf[idx++] = (uint8_t)(frame->seq >> 8);
+  frame_buf[idx++] = (uint8_t)frame->seq;
 
   if (out_len < 11 + frame->value_len)
   {
@@ -88,9 +88,8 @@ int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
     return -1;
   }
 
-  /* The comment field in the logs uses 55 AA 02 01 00 header + cmd etc. */
-  frame->responder_seq = raw[3];
-  frame->direction = raw[4];
+  /* Header layout: 55 AA 02 <seq_hi> <seq_lo> <cmd> <dlen_lo> <dlen_hi> ... */
+  frame->seq = (uint16_t)((raw[3] << 8) | raw[4]);
   frame->cmd = raw[5];
 
   uint16_t dlen = (uint16_t)(raw[6] | (raw[7] << 8));
@@ -119,6 +118,11 @@ int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
 
   frame->checksum = raw[payload_off];
 
+  if (frame->checksum != tuya_checksum(raw, payload_off))
+  {
+    return -1;
+  }
+
   (void)dlen;
   return 0;
 }
@@ -131,8 +135,7 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
   tuya_secondary_mcu_frame_t frame;
   memset(&frame, 0, sizeof(frame));
 
-  frame.responder_seq = 0x01;
-  frame.direction = 0x00;
+  frame.seq = 0x0100; /* fixed value observed for all module -> MCU frames */
   frame.cmd = TUYA_MCU_CMD_WRITE;
   frame.dpid = dpid;
   frame.dp_type = dp_type;
@@ -181,4 +184,96 @@ int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
     return status;
   }
   return hal_uart_write(buffer, written, NULL) == HAL_UART_OK ? 0 : -1;
+}
+
+static tuya_secondary_mcu_dp_report_callback_t g_dp_report_callback = NULL;
+
+void tuya_secondary_mcu_register_dp_report_callback(
+    tuya_secondary_mcu_dp_report_callback_t callback)
+{
+  g_dp_report_callback = callback;
+}
+
+// Assembly buffer for reconstructing frames arriving byte-by-byte over UART.
+#define TUYA_RX_ASSEMBLY_CAPACITY 64
+static uint8_t g_rx_assembly[TUYA_RX_ASSEMBLY_CAPACITY];
+static uint16_t g_rx_assembly_len = 0;
+
+static void tuya_secondary_mcu_process_assembly(void)
+{
+  for (;;)
+  {
+    // Resync on the 55 AA magic header, discarding stray bytes.
+    while (g_rx_assembly_len >= 2 &&
+           (g_rx_assembly[0] != 0x55 || g_rx_assembly[1] != 0xAA))
+    {
+      memmove(g_rx_assembly, g_rx_assembly + 1, --g_rx_assembly_len);
+    }
+
+    // Need the fixed 8-byte header (incl. dlen) to know the full frame size.
+    if (g_rx_assembly_len < 8)
+    {
+      return;
+    }
+
+    uint16_t dlen = (uint16_t)(g_rx_assembly[6] | (g_rx_assembly[7] << 8));
+    uint16_t frame_len = 8 + dlen + 1; // header + payload + checksum
+
+    if (frame_len > TUYA_RX_ASSEMBLY_CAPACITY)
+    {
+      // Corrupt/oversized frame: drop the sync bytes and try to resync.
+      memmove(g_rx_assembly, g_rx_assembly + 2, g_rx_assembly_len - 2);
+      g_rx_assembly_len -= 2;
+      continue;
+    }
+
+    if (g_rx_assembly_len < frame_len)
+    {
+      return; // wait for the rest of the frame
+    }
+
+    tuya_secondary_mcu_frame_t frame;
+    int decode_status =
+        tuya_secondary_mcu_decode_frame(g_rx_assembly, frame_len, &frame);
+
+    // Consume this frame regardless of decode success, so a checksum
+    // mismatch can't get us stuck resyncing on the same bytes forever.
+    memmove(g_rx_assembly, g_rx_assembly + frame_len,
+            g_rx_assembly_len - frame_len);
+    g_rx_assembly_len -= frame_len;
+
+    if (decode_status == 0 && frame.cmd == TUYA_MCU_CMD_REPORT &&
+        g_dp_report_callback != NULL)
+    {
+      g_dp_report_callback(frame.dpid, frame.dp_type, frame.value,
+                           frame.value_len);
+    }
+    // Other cmds (e.g. 0x02 idle query, 0x03 network reset request) are
+    // recognized by the protocol but not acted on here yet.
+  }
+}
+
+void tuya_secondary_mcu_poll(void)
+{
+  if (!tuya_secondary_mcu_is_enabled())
+  {
+    return;
+  }
+
+  while (g_rx_assembly_len < TUYA_RX_ASSEMBLY_CAPACITY &&
+         hal_uart_rx_available() > 0)
+  {
+    uint16_t read_len = 0;
+    hal_uart_status_t st =
+        hal_uart_read(g_rx_assembly + g_rx_assembly_len,
+                      (uint16_t)(TUYA_RX_ASSEMBLY_CAPACITY - g_rx_assembly_len),
+                      &read_len);
+    if (st != HAL_UART_OK || read_len == 0)
+    {
+      break;
+    }
+    g_rx_assembly_len += read_len;
+  }
+
+  tuya_secondary_mcu_process_assembly();
 }

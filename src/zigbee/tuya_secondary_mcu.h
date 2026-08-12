@@ -14,12 +14,15 @@
  * For the captured Avatto dimmer logs the payload layout is:
  *
  *   55 AA 02 01 00 04 00 05 01 01 00 01 01 0F
- *   |--- magic ---| |-- seq/chip? --| cmd | dlen | dpid | type | vlen | value | checksum |
+ *   |magic| ver | seq |cmd | dlen | dpid | type | vlen | value | checksum |
  *
- * The first 5 bytes are fixed per transport and are not actively interpreted by
- * the command layer. The command layer only uses the logical DP payload bytes:
+ * Confirmed against the real Zigbee<->MCU logs in issue #387: seq is a single
+ * 2-byte, big-endian sequence number. The module always sends a fixed 0x0100,
+ * while the MCU increments its own counter per frame it originates. There is
+ * no separate direction bit - cmd already tells you which side sent it.
  *   - cmd = 0x04 (write request, Zigbee -> MCU)
- *   - cmd = 0x06 (confirmation / status response, MCU -> Zigbee)
+ *   - cmd = 0x06 (state report, MCU -> Zigbee; sent both as a write
+ *     confirmation and whenever the physical switch/button changes state)
  *   - dlen = 2-byte little-endian payload length after the cmd field
  *   - dpid = DP identifier (1 byte)
  *   - type = DP encoding type (bool 0x01, int 0x02, enum 0x04)
@@ -43,8 +46,7 @@ typedef enum
 
 typedef struct
 {
-  uint8_t responder_seq;
-  uint8_t direction; /* 0x01 for module->MCU, 0x00 for MCU->module */
+  uint16_t seq; /* big-endian; module always sends 0x0100, MCU increments its own */
   uint8_t cmd;
   uint8_t dpid;
   uint8_t dp_type;
@@ -63,6 +65,7 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
 
 /*
  * Decode a raw UART frame and extract the logical Tuya data payload.
+ * Validates the trailing checksum byte; returns -1 if it does not match.
  */
 int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
                                     tuya_secondary_mcu_frame_t *frame);
@@ -79,6 +82,25 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
  */
 int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
                                 const void *value, uint16_t value_len);
+
+/**
+ * Callback invoked for each DP state report (cmd 0x06) received from the
+ * secondary MCU, e.g. after a physical button/switch changes state.
+ */
+typedef void (*tuya_secondary_mcu_dp_report_callback_t)(uint8_t dpid,
+                                                        uint8_t dp_type,
+                                                        const uint8_t *value,
+                                                        uint16_t value_len);
+
+/** Register the (single) DP report callback. Pass NULL to unregister. */
+void tuya_secondary_mcu_register_dp_report_callback(
+    tuya_secondary_mcu_dp_report_callback_t callback);
+
+/**
+ * Drain and process any bytes received from the secondary MCU. Must be
+ * called periodically (e.g. from the main app tick) to receive DP reports.
+ */
+void tuya_secondary_mcu_poll(void);
 
 /**
  * Initialize the secondary MCU UART path.

@@ -67,6 +67,8 @@ void app_task()
     poll_control_cluster_update();
 #endif
 
+    tuya_secondary_mcu_poll();
+
     // TODO: add jitter to avoid all devices trying to join at once
     if (hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED &&
         hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINING)

@@ -51,6 +51,43 @@ static uint8_t dimmer_get_level_dpid(const zigbee_dimmer_cluster *cluster)
                              : dimmer_default_level_dpid(cluster->endpoint);
 }
 
+// The MCU's brightness DP uses a 0-1000 scale (see issue #387), while ZCL
+// level control commands use 0-254.
+#define TUYA_BRIGHTNESS_MAX 1000
+#define ZCL_LEVEL_MAX 254
+
+static uint32_t dimmer_zcl_level_to_tuya_value(uint8_t zcl_level)
+{
+  return ((uint32_t)zcl_level * TUYA_BRIGHTNESS_MAX + ZCL_LEVEL_MAX / 2) /
+         ZCL_LEVEL_MAX;
+}
+
+static uint8_t dimmer_tuya_value_to_zcl_level(uint32_t tuya_value)
+{
+  if (tuya_value > TUYA_BRIGHTNESS_MAX)
+    tuya_value = TUYA_BRIGHTNESS_MAX;
+  return (uint8_t)((tuya_value * ZCL_LEVEL_MAX + TUYA_BRIGHTNESS_MAX / 2) /
+                   TUYA_BRIGHTNESS_MAX);
+}
+
+static void dimmer_encode_tuya_value(uint32_t value, uint8_t out[4])
+{
+  out[0] = (uint8_t)(value >> 24);
+  out[1] = (uint8_t)(value >> 16);
+  out[2] = (uint8_t)(value >> 8);
+  out[3] = (uint8_t)value;
+}
+
+static uint32_t dimmer_decode_tuya_value(const uint8_t *value, uint16_t value_len)
+{
+  uint32_t result = 0;
+  for (uint16_t i = 0; i < value_len && i < 4; i++)
+  {
+    result = (result << 8) | value[i];
+  }
+  return result;
+}
+
 void dimmer_cluster_on(zigbee_dimmer_cluster *cluster)
 {
   cluster->on = 1;
@@ -80,6 +117,9 @@ static hal_zigbee_cmd_result_t dimmer_cluster_callback_trampoline(
 static hal_zigbee_cmd_result_t dimmer_cluster_level_callback_trampoline(
     uint8_t endpoint, uint16_t cluster_id, uint8_t command_id,
     void *cmd_payload, uint16_t cmd_payload_len);
+
+static void dimmer_cluster_on_dp_report(uint8_t dpid, uint8_t dp_type,
+                                        const uint8_t *value, uint16_t value_len);
 
 static hal_zigbee_cmd_result_t dimmer_cluster_callback(zigbee_dimmer_cluster *cluster,
                                                        uint8_t command_id,
@@ -137,7 +177,8 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
       uint8_t level = *(uint8_t *)cmd_payload;
       dimmer_cluster_set_level(cluster, level);
       uint8_t dpid = dimmer_get_level_dpid(cluster);
-      uint8_t level_value[4] = {0x00, 0x00, 0x00, level};
+      uint8_t level_value[4];
+      dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(level), level_value);
       tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE, level_value, sizeof(level_value));
     }
     break;
@@ -155,6 +196,7 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
 
   SETUP_ATTR(0, ZCL_ATTR_ONOFF, ZCL_DATA_TYPE_BOOLEAN, ATTR_READONLY, cluster->on);
   SETUP_ATTR(1, ZCL_ATTR_START_UP_ONOFF, ZCL_DATA_TYPE_ENUM8, ATTR_WRITABLE, cluster->startup_mode);
+  SETUP_ATTR(2, ZCL_ATTR_LEVEL_CURRENT_LEVEL, ZCL_DATA_TYPE_UINT8, ATTR_READONLY, cluster->current_level);
 
   endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_ON_OFF;
   endpoint->clusters[endpoint->cluster_count].attribute_count = 2;
@@ -165,24 +207,32 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
   endpoint->cluster_count++;
 
   endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_LEVEL_CONTROL;
-  endpoint->clusters[endpoint->cluster_count].attribute_count = 0;
-  endpoint->clusters[endpoint->cluster_count].attributes = NULL;
+  endpoint->clusters[endpoint->cluster_count].attribute_count = 1;
+  endpoint->clusters[endpoint->cluster_count].attributes = &cluster->attr_infos[2];
   endpoint->clusters[endpoint->cluster_count].is_server = 1;
   endpoint->clusters[endpoint->cluster_count].cmd_callback =
       dimmer_cluster_level_callback_trampoline;
   endpoint->cluster_count++;
 
+  // Receive DP state reports from the secondary MCU (e.g. physical button
+  // presses) for every registered dimmer, not just this endpoint.
+  tuya_secondary_mcu_register_dp_report_callback(dimmer_cluster_on_dp_report);
+
   // Push the configured DPIDs to the secondary MCU once at startup, so the
   // parsed Pxx DPID mapping actually takes effect on the hardware side.
   if (cluster->min_level_dpid)
   {
-    uint8_t value_bytes[4] = {0x00, 0x00, 0x00, cluster->min_level};
+    uint8_t value_bytes[4];
+    dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(cluster->min_level),
+                             value_bytes);
     tuya_secondary_mcu_write_dp(cluster->min_level_dpid, TUYA_DP_TYPE_VALUE,
                                 value_bytes, sizeof(value_bytes));
   }
   if (cluster->max_level_dpid)
   {
-    uint8_t value_bytes[4] = {0x00, 0x00, 0x00, cluster->max_level};
+    uint8_t value_bytes[4];
+    dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(cluster->max_level),
+                             value_bytes);
     tuya_secondary_mcu_write_dp(cluster->max_level_dpid, TUYA_DP_TYPE_VALUE,
                                 value_bytes, sizeof(value_bytes));
   }
@@ -228,6 +278,35 @@ void dimmer_cluster_callback_attr_write_trampoline(uint8_t endpoint,
                                                    uint16_t attribute_id)
 {
   dimmer_cluster_on_write_attr(dimmer_cluster_by_endpoint[endpoint], attribute_id);
+}
+
+static void dimmer_cluster_on_dp_report(uint8_t dpid, uint8_t dp_type,
+                                        const uint8_t *value, uint16_t value_len)
+{
+  // A single DP report can apply to any registered dimmer endpoint, since
+  // DPIDs are assigned per-dimmer, not globally.
+  for (int i = 0; i < 10; i++)
+  {
+    zigbee_dimmer_cluster *cluster = dimmer_cluster_by_endpoint[i];
+    if (cluster == NULL)
+      continue;
+
+    if (dp_type == TUYA_DP_TYPE_BOOL && dpid == dimmer_get_onoff_dpid(cluster))
+    {
+      if (value_len < 1)
+        continue;
+      cluster->on = value[0] ? 1 : 0;
+      hal_zigbee_notify_attribute_changed(cluster->endpoint, ZCL_CLUSTER_ON_OFF,
+                                          ZCL_ATTR_ONOFF);
+    }
+    else if (dp_type == TUYA_DP_TYPE_VALUE && dpid == dimmer_get_level_dpid(cluster))
+    {
+      uint32_t tuya_value = dimmer_decode_tuya_value(value, value_len);
+      cluster->current_level = dimmer_tuya_value_to_zcl_level(tuya_value);
+      hal_zigbee_notify_attribute_changed(cluster->endpoint, ZCL_CLUSTER_LEVEL_CONTROL,
+                                          ZCL_ATTR_LEVEL_CURRENT_LEVEL);
+    }
+  }
 }
 
 static hal_zigbee_cmd_result_t dimmer_cluster_callback_trampoline(
