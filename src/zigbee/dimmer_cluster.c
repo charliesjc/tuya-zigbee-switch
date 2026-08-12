@@ -1,0 +1,248 @@
+#include "zigbee/dimmer_cluster.h"
+#include "zigbee/cluster_common.h"
+#include "zigbee/consts.h"
+#include "zigbee/tuya_secondary_mcu.h"
+
+static zigbee_dimmer_cluster *dimmer_cluster_by_endpoint[10];
+
+static uint8_t dimmer_default_onoff_dpid(uint8_t endpoint)
+{
+  switch (endpoint)
+  {
+  case 1:
+    return 0x01;
+  case 2:
+    return 0x02;
+  case 3:
+    return 0x03;
+  case 4:
+    return 0x04;
+  default:
+    return 0x01;
+  }
+}
+
+static uint8_t dimmer_default_level_dpid(uint8_t endpoint)
+{
+  switch (endpoint)
+  {
+  case 1:
+    return 0x08;
+  case 2:
+    return 0x09;
+  case 3:
+    return 0x0A;
+  case 4:
+    return 0x0B;
+  default:
+    return 0x08;
+  }
+}
+
+static uint8_t dimmer_get_onoff_dpid(const zigbee_dimmer_cluster *cluster)
+{
+  return cluster->onoff_dpid ? cluster->onoff_dpid
+                             : dimmer_default_onoff_dpid(cluster->endpoint);
+}
+
+static uint8_t dimmer_get_level_dpid(const zigbee_dimmer_cluster *cluster)
+{
+  return cluster->level_dpid ? cluster->level_dpid
+                             : dimmer_default_level_dpid(cluster->endpoint);
+}
+
+void dimmer_cluster_on(zigbee_dimmer_cluster *cluster)
+{
+  cluster->on = 1;
+  cluster->current_level = cluster->max_level;
+}
+
+void dimmer_cluster_off(zigbee_dimmer_cluster *cluster)
+{
+  cluster->on = 0;
+  cluster->current_level = 0;
+}
+
+void dimmer_cluster_set_level(zigbee_dimmer_cluster *cluster, uint8_t level)
+{
+  if (level < cluster->min_level)
+    level = cluster->min_level;
+  if (level > cluster->max_level)
+    level = cluster->max_level;
+  cluster->current_level = level;
+  cluster->on = level != 0;
+}
+
+static hal_zigbee_cmd_result_t dimmer_cluster_callback_trampoline(
+    uint8_t endpoint, uint16_t cluster_id, uint8_t command_id,
+    void *cmd_payload, uint16_t cmd_payload_len);
+
+static hal_zigbee_cmd_result_t dimmer_cluster_level_callback_trampoline(
+    uint8_t endpoint, uint16_t cluster_id, uint8_t command_id,
+    void *cmd_payload, uint16_t cmd_payload_len);
+
+static hal_zigbee_cmd_result_t dimmer_cluster_callback(zigbee_dimmer_cluster *cluster,
+                                                       uint8_t command_id,
+                                                       void *cmd_payload,
+                                                       uint16_t cmd_payload_len)
+{
+  switch (command_id)
+  {
+  case ZCL_CMD_ONOFF_ON:
+  case ZCL_CMD_ON_WITH_RECALL_GLOBAL_SCENE:
+    dimmer_cluster_on(cluster);
+    {
+      uint8_t dpid = dimmer_get_onoff_dpid(cluster);
+      uint8_t onv = 1;
+      tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &onv, sizeof(onv));
+    }
+    break;
+  case ZCL_CMD_ONOFF_OFF:
+  case ZCL_CMD_OFF_WITH_EFFECT:
+    dimmer_cluster_off(cluster);
+    {
+      uint8_t dpid = dimmer_get_onoff_dpid(cluster);
+      uint8_t offv = 0;
+      tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &offv, sizeof(offv));
+    }
+    break;
+  case ZCL_CMD_ONOFF_TOGGLE:
+    if (cluster->on)
+      dimmer_cluster_off(cluster);
+    else
+      dimmer_cluster_on(cluster);
+    {
+      uint8_t dpid = dimmer_get_onoff_dpid(cluster);
+      uint8_t v = cluster->on ? 1 : 0;
+      tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &v, sizeof(v));
+    }
+    break;
+  default:
+    return HAL_ZIGBEE_CMD_SKIPPED;
+  }
+  return HAL_ZIGBEE_CMD_PROCESSED;
+}
+
+static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_cluster *cluster,
+                                                             uint8_t command_id,
+                                                             void *cmd_payload,
+                                                             uint16_t cmd_payload_len)
+{
+  switch (command_id)
+  {
+  case ZCL_CMD_LEVEL_MOVE_TO_LEVEL_WITH_ON_OFF:
+    if (cmd_payload == NULL || cmd_payload_len < 1)
+      return HAL_ZIGBEE_MALFORMED_COMMAND;
+    {
+      uint8_t level = *(uint8_t *)cmd_payload;
+      dimmer_cluster_set_level(cluster, level);
+      uint8_t dpid = dimmer_get_level_dpid(cluster);
+      uint8_t level_value[4] = {0x00, 0x00, 0x00, level};
+      tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE, level_value, sizeof(level_value));
+    }
+    break;
+  default:
+    return HAL_ZIGBEE_CMD_SKIPPED;
+  }
+  return HAL_ZIGBEE_CMD_PROCESSED;
+}
+
+void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
+                                    hal_zigbee_endpoint *endpoint)
+{
+  cluster->endpoint = endpoint->endpoint;
+  dimmer_cluster_by_endpoint[endpoint->endpoint] = cluster;
+
+  SETUP_ATTR(0, ZCL_ATTR_ONOFF, ZCL_DATA_TYPE_BOOLEAN, ATTR_READONLY, cluster->on);
+  SETUP_ATTR(1, ZCL_ATTR_START_UP_ONOFF, ZCL_DATA_TYPE_ENUM8, ATTR_WRITABLE, cluster->startup_mode);
+
+  endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_ON_OFF;
+  endpoint->clusters[endpoint->cluster_count].attribute_count = 2;
+  endpoint->clusters[endpoint->cluster_count].attributes = cluster->attr_infos;
+  endpoint->clusters[endpoint->cluster_count].is_server = 1;
+  endpoint->clusters[endpoint->cluster_count].cmd_callback =
+      dimmer_cluster_callback_trampoline;
+  endpoint->cluster_count++;
+
+  endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_LEVEL_CONTROL;
+  endpoint->clusters[endpoint->cluster_count].attribute_count = 0;
+  endpoint->clusters[endpoint->cluster_count].attributes = NULL;
+  endpoint->clusters[endpoint->cluster_count].is_server = 1;
+  endpoint->clusters[endpoint->cluster_count].cmd_callback =
+      dimmer_cluster_level_callback_trampoline;
+  endpoint->cluster_count++;
+
+  // Push the configured DPIDs to the secondary MCU once at startup, so the
+  // parsed Pxx DPID mapping actually takes effect on the hardware side.
+  if (cluster->min_level_dpid)
+  {
+    uint8_t value_bytes[4] = {0x00, 0x00, 0x00, cluster->min_level};
+    tuya_secondary_mcu_write_dp(cluster->min_level_dpid, TUYA_DP_TYPE_VALUE,
+                                value_bytes, sizeof(value_bytes));
+  }
+  if (cluster->max_level_dpid)
+  {
+    uint8_t value_bytes[4] = {0x00, 0x00, 0x00, cluster->max_level};
+    tuya_secondary_mcu_write_dp(cluster->max_level_dpid, TUYA_DP_TYPE_VALUE,
+                                value_bytes, sizeof(value_bytes));
+  }
+  if (cluster->switch_type_dpid)
+  {
+    uint8_t value = ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE;
+    tuya_secondary_mcu_write_dp(cluster->switch_type_dpid, TUYA_DP_TYPE_ENUM,
+                                &value, sizeof(value));
+  }
+}
+
+static uint8_t dimmer_power_on_behavior_value(uint8_t startup_mode)
+{
+  // Translate the ZCL StartUpOnOff enum to the common Tuya power-on-behavior
+  // DP encoding (0 = off, 1 = on, 2 = memory/previous). Toggle has no direct
+  // Tuya equivalent, so it falls back to memory.
+  switch (startup_mode)
+  {
+  case ZCL_START_UP_ONOFF_SET_ONOFF_TO_OFF:
+    return 0;
+  case ZCL_START_UP_ONOFF_SET_ONOFF_TO_ON:
+    return 1;
+  default:
+    return 2;
+  }
+}
+
+void dimmer_cluster_on_write_attr(zigbee_dimmer_cluster *cluster,
+                                  uint16_t attribute_id)
+{
+  if (cluster == NULL)
+    return;
+
+  if (attribute_id == ZCL_ATTR_START_UP_ONOFF && cluster->power_on_behavior_dpid)
+  {
+    uint8_t value = dimmer_power_on_behavior_value(cluster->startup_mode);
+    tuya_secondary_mcu_write_dp(cluster->power_on_behavior_dpid,
+                                TUYA_DP_TYPE_ENUM, &value, sizeof(value));
+  }
+}
+
+void dimmer_cluster_callback_attr_write_trampoline(uint8_t endpoint,
+                                                   uint16_t attribute_id)
+{
+  dimmer_cluster_on_write_attr(dimmer_cluster_by_endpoint[endpoint], attribute_id);
+}
+
+static hal_zigbee_cmd_result_t dimmer_cluster_callback_trampoline(
+    uint8_t endpoint, uint16_t cluster_id, uint8_t command_id,
+    void *cmd_payload, uint16_t cmd_payload_len)
+{
+  return dimmer_cluster_callback(dimmer_cluster_by_endpoint[endpoint],
+                                 command_id, cmd_payload, cmd_payload_len);
+}
+
+static hal_zigbee_cmd_result_t dimmer_cluster_level_callback_trampoline(
+    uint8_t endpoint, uint16_t cluster_id, uint8_t command_id,
+    void *cmd_payload, uint16_t cmd_payload_len)
+{
+  return dimmer_cluster_level_callback(dimmer_cluster_by_endpoint[endpoint],
+                                       command_id, cmd_payload,
+                                       cmd_payload_len);
+}

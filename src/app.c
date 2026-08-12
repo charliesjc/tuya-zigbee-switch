@@ -7,30 +7,34 @@
 #include "hal/system.h"
 #include "hal/zigbee.h"
 #include "hal/zigbee_ota.h"
+#include "zigbee/tuya_secondary_mcu.h"
 #include "zigbee/battery_cluster.h"
 #include "zigbee/general_commands.h"
 #ifdef END_DEVICE
 #include "zigbee/poll_control_cluster.h"
 #endif
 
-void process_device_type_change() {
+void process_device_type_change()
+{
     // If device was updated from router to end device or vice versa,
     // we need to do a reset, as the network settings stored by SDK in NVM
     // are not compatible between these device types.
     // Read device type from NVM and compare with current configuration.
     enum device_type_t stored_device_type;
-    hal_nvm_status_t   st =
+    hal_nvm_status_t st =
         hal_nvm_read(NV_ITEM_DEVICE_TYPE, sizeof(stored_device_type),
                      (uint8_t *)&stored_device_type);
 
-    if (st != HAL_NVM_SUCCESS) {
+    if (st != HAL_NVM_SUCCESS)
+    {
         // Unable to read device type from NVM, possibly first boot.
         stored_device_type = CURRENT_DEVICE_TYPE;
         hal_nvm_write(NV_ITEM_DEVICE_TYPE, sizeof(stored_device_type),
                       (uint8_t *)&stored_device_type);
         return;
     }
-    if (stored_device_type != CURRENT_DEVICE_TYPE) {
+    if (stored_device_type != CURRENT_DEVICE_TYPE)
+    {
         printf("Device type change detected: %d -> %d\r\n", stored_device_type,
                CURRENT_DEVICE_TYPE);
         // Device type has changed, update NVM and reset device.
@@ -43,10 +47,12 @@ void process_device_type_change() {
     }
 }
 
-void app_init(void) {
+void app_init(void)
+{
     handle_version_changes();
     parse_config(); // Does most of the setup, including all callbacks
                     // registration
+    tuya_secondary_mcu_init(NULL);
     hal_zigbee_init_ota();
     init_global_attr_write_callback();
 
@@ -55,18 +61,21 @@ void app_init(void) {
 
 static bool boot_announce_sent = false;
 
-void app_task() {
+void app_task()
+{
 #ifdef END_DEVICE
     poll_control_cluster_update();
 #endif
 
     // TODO: add jitter to avoid all devices trying to join at once
     if (hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED &&
-        hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINING) {
+        hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINING)
+    {
         hal_zigbee_start_network_steering();
     }
     if (!boot_announce_sent &&
-        hal_zigbee_get_network_status() == HAL_ZIGBEE_NETWORK_JOINED) {
+        hal_zigbee_get_network_status() == HAL_ZIGBEE_NETWORK_JOINED)
+    {
         hal_zigbee_send_announce();
         boot_announce_sent = true;
     }

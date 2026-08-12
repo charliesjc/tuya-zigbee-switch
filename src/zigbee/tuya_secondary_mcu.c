@@ -1,7 +1,10 @@
 #include "zigbee/tuya_secondary_mcu.h"
 #include "hal/uart.h"
 
+#include <stdbool.h>
 #include <string.h>
+
+static bool g_tuya_secondary_mcu_enabled = false;
 
 static uint8_t tuya_checksum(const uint8_t *buf, uint16_t len)
 {
@@ -22,9 +25,9 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
     return -1;
   }
 
-  uint8_t data_len = (uint8_t)(2 + 1 + 1 + 2 + frame->value_len);
+  uint16_t data_len = 1 + 1 + 2 + frame->value_len;
   uint8_t frame_buf[64];
-  uint8_t idx = 0;
+  uint16_t idx = 0;
 
   frame_buf[idx++] = 0x55;
   frame_buf[idx++] = 0xAA;
@@ -50,7 +53,11 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
     frame_buf[idx++] = frame->value[i];
   }
 
-  frame_buf[idx++] = tuya_checksum(frame_buf, idx);
+  // Compute the checksum length before incrementing idx: combining both in
+  // one expression is unsequenced (undefined which value idx has when the
+  // checksum call is evaluated).
+  uint8_t checksum = tuya_checksum(frame_buf, idx);
+  frame_buf[idx++] = checksum;
 
   if (idx > out_len)
   {
@@ -133,4 +140,45 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
   memcpy(frame.value, value, value_len);
 
   return tuya_secondary_mcu_encode_frame(&frame, out, out_len, written);
+}
+
+bool tuya_secondary_mcu_is_enabled(void)
+{
+  return g_tuya_secondary_mcu_enabled;
+}
+
+void tuya_secondary_mcu_enable(void)
+{
+  g_tuya_secondary_mcu_enabled = true;
+}
+
+void tuya_secondary_mcu_disable(void)
+{
+  g_tuya_secondary_mcu_enabled = false;
+}
+
+int tuya_secondary_mcu_init(const hal_uart_config_t *cfg)
+{
+  hal_uart_init(cfg);
+  tuya_secondary_mcu_enable();
+  return 0;
+}
+
+int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
+                                const void *value, uint16_t value_len)
+{
+  if (!tuya_secondary_mcu_is_enabled())
+  {
+    return -1;
+  }
+
+  uint8_t buffer[64];
+  uint16_t written = 0;
+  int status = tuya_secondary_mcu_send_dp(dpid, dp_type, value, value_len,
+                                          buffer, sizeof(buffer), &written);
+  if (status != 0)
+  {
+    return status;
+  }
+  return hal_uart_write(buffer, written, NULL) == HAL_UART_OK ? 0 : -1;
 }

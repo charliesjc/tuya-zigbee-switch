@@ -1,8 +1,10 @@
 #ifndef _TUYA_SECONDARY_MCU_H_
 #define _TUYA_SECONDARY_MCU_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "hal/uart.h"
 
 /*
  * Tuya Zigbee module / secondary MCU framing as seen in issue #387
@@ -18,11 +20,12 @@
  * the command layer. The command layer only uses the logical DP payload bytes:
  *   - cmd = 0x04 (write request, Zigbee -> MCU)
  *   - cmd = 0x06 (confirmation / status response, MCU -> Zigbee)
- *   - dlen = payload length in bytes after the cmd and before the crc byte
+ *   - dlen = 2-byte little-endian payload length after the cmd field
  *   - dpid = DP identifier (1 byte)
  *   - type = DP encoding type (bool 0x01, int 0x02, enum 0x04)
- *   - value length = little-endian 2 bytes
- *   - value bytes = dlen payload value
+ *   - value length = 2-byte little-endian length of the following value bytes
+ *   - value bytes = value payload, where multi-byte integer values are stored
+ *     in big-endian order inside that field.
  */
 
 typedef enum
@@ -71,5 +74,22 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
                                const void *value, uint16_t value_len,
                                uint8_t *out, uint16_t out_len,
                                uint16_t *written);
+/**
+ * Write a DP frame directly to the secondary MCU UART.
+ */
+int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
+                                const void *value, uint16_t value_len);
 
+/**
+ * Initialize the secondary MCU UART path.
+ */
+int tuya_secondary_mcu_init(const hal_uart_config_t *cfg);
+
+/**
+ * Enable the secondary MCU path at runtime. This can also be used by boards
+ * that require manual initialization after UART setup.
+ */
+bool tuya_secondary_mcu_is_enabled(void);
+void tuya_secondary_mcu_enable(void);
+void tuya_secondary_mcu_disable(void);
 #endif

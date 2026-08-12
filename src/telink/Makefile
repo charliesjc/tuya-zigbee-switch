@@ -131,6 +131,7 @@ TELINK_SOURCES := \
 	hal/gpio.c \
 	hal/gpio_interrupts.c \
 	hal/nvm.c \
+	hal/uart.c \
 	hal/zigbee.c \
 	hal/zigbee_network.c \
 	hal/zigbee_zcl.c \
@@ -157,6 +158,7 @@ COMMON_SOURCES := \
 	$(SRC_DIR)/device_config/config_parser.c \
 	$(SRC_DIR)/device_config/nvm_migrations.c \
 	$(SRC_DIR)/zigbee/basic_cluster.c \
+	$(SRC_DIR)/zigbee/tuya_secondary_mcu.c \
 	$(SRC_DIR)/zigbee/general_commands.c \
 	$(SRC_DIR)/zigbee/group_cluster.c \
 	$(SRC_DIR)/zigbee/relay_cluster.c \
