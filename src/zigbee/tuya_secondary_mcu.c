@@ -6,14 +6,20 @@
 
 static bool g_tuya_secondary_mcu_enabled = false;
 
+// Outgoing sequence number, cycling 0..0xfff0 per the Tuya protocol. The
+// original firmware hardcoded 0x0100 for module->MCU frames, but the protocol
+// expects a proper incrementing sequence on both directions.
+static uint16_t g_tx_seq = 0;
+
 static uint8_t tuya_checksum(const uint8_t *buf, uint16_t len)
 {
+  // Checksum is the plain sum of all preceding bytes mod 256
   uint8_t sum = 0;
   for (uint16_t i = 0; i < len; i++)
   {
     sum += buf[i];
   }
-  return (uint8_t)(-sum);
+  return sum;
 }
 
 int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
@@ -41,12 +47,12 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
   }
 
   frame_buf[idx++] = (uint8_t)frame->cmd;
-  frame_buf[idx++] = (uint8_t)(data_len & 0xFF);
   frame_buf[idx++] = (uint8_t)(data_len >> 8);
+  frame_buf[idx++] = (uint8_t)(data_len & 0xFF);
   frame_buf[idx++] = frame->dpid;
   frame_buf[idx++] = frame->dp_type;
-  frame_buf[idx++] = (uint8_t)(frame->value_len & 0xFF);
   frame_buf[idx++] = (uint8_t)((frame->value_len >> 8) & 0xFF);
+  frame_buf[idx++] = (uint8_t)(frame->value_len & 0xFF);
 
   for (uint16_t i = 0; i < frame->value_len; i++)
   {
@@ -88,11 +94,12 @@ int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
     return -1;
   }
 
-  /* Header layout: 55 AA 02 <seq_hi> <seq_lo> <cmd> <dlen_lo> <dlen_hi> ... */
+  /* Header layout: 55 AA 02 <seq_hi> <seq_lo> <cmd> <dlen_hi> <dlen_lo> ... */
   frame->seq = (uint16_t)((raw[3] << 8) | raw[4]);
   frame->cmd = raw[5];
 
-  uint16_t dlen = (uint16_t)(raw[6] | (raw[7] << 8));
+  // dlen and value_len are big-endian in the captured frames (e.g. 00 05 = 5).
+  uint16_t dlen = (uint16_t)((raw[6] << 8) | raw[7]);
   uint16_t payload_off = 8;
 
   if (raw_len < payload_off + dlen + 1)
@@ -102,7 +109,7 @@ int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
 
   frame->dpid = raw[payload_off++];
   frame->dp_type = raw[payload_off++];
-  frame->value_len = (uint16_t)(raw[payload_off] | (raw[payload_off + 1] << 8));
+  frame->value_len = (uint16_t)((raw[payload_off] << 8) | raw[payload_off + 1]);
   payload_off += 2;
 
   if (frame->value_len > sizeof(frame->value))
@@ -135,7 +142,8 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
   tuya_secondary_mcu_frame_t frame;
   memset(&frame, 0, sizeof(frame));
 
-  frame.seq = 0x0100; /* fixed value observed for all module -> MCU frames */
+  frame.seq = g_tx_seq;
+  g_tx_seq = (uint16_t)((g_tx_seq + 1) & 0xFFF0);
   frame.cmd = TUYA_MCU_CMD_WRITE;
   frame.dpid = dpid;
   frame.dp_type = dp_type;
@@ -216,7 +224,7 @@ static void tuya_secondary_mcu_process_assembly(void)
       return;
     }
 
-    uint16_t dlen = (uint16_t)(g_rx_assembly[6] | (g_rx_assembly[7] << 8));
+    uint16_t dlen = (uint16_t)((g_rx_assembly[6] << 8) | g_rx_assembly[7]);
     uint16_t frame_len = 8 + dlen + 1; // header + payload + checksum
 
     if (frame_len > TUYA_RX_ASSEMBLY_CAPACITY)

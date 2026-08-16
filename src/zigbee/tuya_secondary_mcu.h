@@ -16,19 +16,21 @@
  *   55 AA 02 01 00 04 00 05 01 01 00 01 01 0F
  *   |magic| ver | seq |cmd | dlen | dpid | type | vlen | value | checksum |
  *
- * Confirmed against the real Zigbee<->MCU logs in issue #387: seq is a single
- * 2-byte, big-endian sequence number. The module always sends a fixed 0x0100,
- * while the MCU increments its own counter per frame it originates. There is
- * no separate direction bit - cmd already tells you which side sent it.
+ *   - seq is a single 2-byte, big-endian sequence number cycling
+ *     0..0xfff0. The stock firmware hardcoded 0x0100 for module->MCU frames (lazy
+ *     programming?), but the protocol expects a proper incrementing sequence on
+ *     both directions, which this implementation now does. There is no separate
+ *     direction bit - cmd already tells you which side sent it.
  *   - cmd = 0x04 (write request, Zigbee -> MCU)
  *   - cmd = 0x06 (state report, MCU -> Zigbee; sent both as a write
  *     confirmation and whenever the physical switch/button changes state)
- *   - dlen = 2-byte little-endian payload length after the cmd field
+ *   - dlen = 2-byte big-endian payload length after the cmd field
  *   - dpid = DP identifier (1 byte)
  *   - type = DP encoding type (bool 0x01, int 0x02, enum 0x04)
- *   - value length = 2-byte little-endian length of the following value bytes
+ *   - value length = 2-byte big-endian length of the following value bytes
  *   - value bytes = value payload, where multi-byte integer values are stored
  *     in big-endian order inside that field.
+ *   - checksum = plain sum of all preceding bytes mod 256
  */
 
 typedef enum
