@@ -33,28 +33,25 @@
  *   - checksum = plain sum of all preceding bytes mod 256
  */
 
-typedef enum
-{
-  TUYA_DP_TYPE_BOOL = 0x01,
-  TUYA_DP_TYPE_VALUE = 0x02,
-  TUYA_DP_TYPE_ENUM = 0x04,
+typedef enum {
+    TUYA_DP_TYPE_BOOL  = 0x01,
+    TUYA_DP_TYPE_VALUE = 0x02,
+    TUYA_DP_TYPE_ENUM  = 0x04,
 } tuya_dp_type_t;
 
-typedef enum
-{
-  TUYA_MCU_CMD_WRITE = 0x04,
-  TUYA_MCU_CMD_REPORT = 0x06,
+typedef enum {
+    TUYA_MCU_CMD_WRITE  = 0x04,
+    TUYA_MCU_CMD_REPORT = 0x06,
 } tuya_mcu_cmd_t;
 
-typedef struct
-{
-  uint16_t seq; /* big-endian; module always sends 0x0100, MCU increments its own */
-  uint8_t cmd;
-  uint8_t dpid;
-  uint8_t dp_type;
-  uint16_t value_len;
-  uint8_t value[16];
-  uint8_t checksum;
+typedef struct {
+    uint16_t seq; /* big-endian; module always sends 0x0100, MCU increments its own */
+    uint8_t  cmd;
+    uint8_t  dpid;
+    uint8_t  dp_type;
+    uint16_t value_len;
+    uint8_t  value[16];
+    uint8_t  checksum;
 } tuya_secondary_mcu_frame_t;
 
 /*
@@ -79,6 +76,7 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
                                const void *value, uint16_t value_len,
                                uint8_t *out, uint16_t out_len,
                                uint16_t *written);
+
 /**
  * Write a DP frame directly to the secondary MCU UART.
  */
@@ -128,4 +126,5 @@ int tuya_secondary_mcu_init(const hal_uart_config_t *cfg);
 bool tuya_secondary_mcu_is_enabled(void);
 void tuya_secondary_mcu_enable(void);
 void tuya_secondary_mcu_disable(void);
+
 #endif

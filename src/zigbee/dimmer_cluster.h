@@ -3,24 +3,23 @@
 
 #include "hal/zigbee.h"
 
-typedef struct
-{
-  uint8_t dimmer_idx;
-  uint8_t endpoint;
-  uint8_t startup_mode;
-  uint8_t onoff_dpid;
-  uint8_t level_dpid;
-  uint8_t switch_type_dpid;
-  uint8_t min_level_dpid;
-  uint8_t max_level_dpid;
-  uint8_t power_on_behavior_dpid;
-  hal_zigbee_attribute attr_infos[3];        // OGF: onoff, startup, current_level
-  hal_zigbee_attribute config_attr_infos[3]; // min/max/switch_type
-  uint8_t current_level;
-  uint8_t min_level;
-  uint8_t max_level;
-  uint8_t switch_type;
-  uint8_t on;
+typedef struct {
+    uint8_t              dimmer_idx;
+    uint8_t              endpoint;
+    uint8_t              startup_mode;
+    uint8_t              onoff_dpid;
+    uint8_t              level_dpid;
+    uint8_t              switch_type_dpid;
+    uint8_t              min_level_dpid;
+    uint8_t              max_level_dpid;
+    uint8_t              power_on_behavior_dpid;
+    hal_zigbee_attribute attr_infos[3];        // OGF: onoff, startup, current_level
+    hal_zigbee_attribute config_attr_infos[3]; // min/max/switch_type
+    uint8_t              current_level;
+    uint8_t              min_level;
+    uint8_t              max_level;
+    uint8_t              switch_type;
+    uint8_t              on;
 } zigbee_dimmer_cluster;
 
 void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
