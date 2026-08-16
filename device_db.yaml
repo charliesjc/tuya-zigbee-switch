@@ -24,7 +24,7 @@
 #   - Tokens inside a Pxx block must use two hex characters for DPIDs (e.g. 07, 0A)
 #
 # Example full config_str:
-#   mydim;TS000X-DIM;LB2;SA1u;SA3u;DM2;P08O01L08S05M06X07;P09O02L09S08M0A X0B;U0C;M;
+#   mydim;TS000X-DIM;LB1;SA1u;SA3u;DM2;P00O01L02S04M03X05;P01O07L08S0AM09X0B;U0E;M;
 #
 BOARD__MHCOZY_TS0004:
   human_name: MHCOZY TYWB 4ch-RF <br> ZG-005(-RF) 🅰
@@ -714,6 +714,39 @@ MODULE_AVATTO_TS0013:
   info: Supported
   threads: https://github.com/romasku/tuya-zigbee-switch/issues/135
   store: https://www.aliexpress.com/item/1005007247647375.html
+MODULE_AVATTO_ZDMS16_2:
+  human_name: AVATTO ZDMS16-2 <br> Tuya dimmer (2 gang)
+  category: module
+  power: mains
+  neutral: required
+  output: triac
+  device_type: router
+  stock_model_name: TS0601
+  stock_manufacturer_name: _TZE284_jtbgusdc
+  stock_converter_manufacturer: Tuya
+  stock_converter_model: TS0601_switch
+  override_z2m_device: TS0601_dimmer_2_gang
+  tuya_module: ZTU
+  mcu_family: Telink
+  mcu: TLSR8258
+  # Secondary MCU (Puya PY32F002A) communicates over UART (issue #387):
+  #   P token fields: O=onoff, L=level, S=switch_type, M=min, X=max (hex)
+  #   L1 (idx 0x00): onoff=0x01 level=0x02 switch_type=0x04 min=0x03 max=0x05
+  #   L2 (idx 0x01): onoff=0x07 level=0x08 switch_type=0x0A min=0x09 max=0x0B
+  #   U0E = shared power-on-behavior DPID. No GPIO LED/switch on this board:
+  #   all controls go via the secondary MCU UART, so there are no L/S tokens.
+  config_str: jtbgusdc;TS0601-DIM;DM2;P00O01L02S04M03X05;P01O07L08S0AM09X0B;U0E;M;
+  alt_config_str: null
+  old_manufacturer_names: null
+  old_zb_models: null
+  stock_manufacturer_id: 4417
+  stock_image_type: 54179
+  firmware_image_type: 47120
+  build: yes
+  status: in_progress
+  info: Preliminary support, needs testing with real hardware (issue #387)
+  threads: https://github.com/romasku/tuya-zigbee-switch/issues/387
+  store: https://www.aliexpress.com/item/1005006832261783.html
 MODULE_EKAZA_TS0002:
   human_name: EKAZA EKAC-T3092Z
   category: module

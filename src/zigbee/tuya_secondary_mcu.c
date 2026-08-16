@@ -195,11 +195,18 @@ int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
 }
 
 static tuya_secondary_mcu_dp_report_callback_t g_dp_report_callback = NULL;
+static tuya_secondary_mcu_command_callback_t g_command_callback = NULL;
 
 void tuya_secondary_mcu_register_dp_report_callback(
     tuya_secondary_mcu_dp_report_callback_t callback)
 {
   g_dp_report_callback = callback;
+}
+
+void tuya_secondary_mcu_register_command_callback(
+    tuya_secondary_mcu_command_callback_t callback)
+{
+  g_command_callback = callback;
 }
 
 // Assembly buffer for reconstructing frames arriving byte-by-byte over UART.
@@ -250,14 +257,27 @@ static void tuya_secondary_mcu_process_assembly(void)
             g_rx_assembly_len - frame_len);
     g_rx_assembly_len -= frame_len;
 
-    if (decode_status == 0 && frame.cmd == TUYA_MCU_CMD_REPORT &&
-        g_dp_report_callback != NULL)
+    if (decode_status == 0)
     {
-      g_dp_report_callback(frame.dpid, frame.dp_type, frame.value,
-                           frame.value_len);
+      if (frame.cmd == TUYA_MCU_CMD_REPORT)
+      {
+        // DP state report (button press, write ack), e.g. physical button.
+        if (g_dp_report_callback != NULL)
+        {
+          g_dp_report_callback(frame.dpid, frame.dp_type, frame.value,
+                               frame.value_len);
+        }
+      }
+      else
+      {
+        // Other MCU-originated commands (0x02 idle/network query, 0x03 leave
+        // network / rejoin, ...). Let the application decide.
+        if (g_command_callback != NULL)
+        {
+          g_command_callback(frame.cmd, frame.value, frame.value_len);
+        }
+      }
     }
-    // Other cmds (e.g. 0x02 idle query, 0x03 network reset request) are
-    // recognized by the protocol but not acted on here yet.
   }
 }
 

@@ -99,6 +99,18 @@ void tuya_secondary_mcu_register_dp_report_callback(
     tuya_secondary_mcu_dp_report_callback_t callback);
 
 /**
+ * Non-DP command from the secondary MCU. `cmd` uses the tuya_mcu_cmd_t range
+ * (e.g. 0x03 leave/rejoin which is sent when the physical button is held).
+ */
+typedef void (*tuya_secondary_mcu_command_callback_t)(uint8_t cmd,
+                                                      const uint8_t *data,
+                                                      uint16_t data_len);
+
+/** Register the (single) non-DP command callback. Pass NULL to unregister. */
+void tuya_secondary_mcu_register_command_callback(
+    tuya_secondary_mcu_command_callback_t callback);
+
+/**
  * Drain and process any bytes received from the secondary MCU. Must be
  * called periodically (e.g. from the main app tick) to receive DP reports.
  */

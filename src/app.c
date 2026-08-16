@@ -47,12 +47,31 @@ void process_device_type_change()
     }
 }
 
+// 0x03 = reset/pair module, sent MCU->module when the dimmer's physical
+// button is held down. Data 0x01 means "leave current network and join a new
+// one" -> a pairing reset (not a factory reset of the user's config).
+#define TUYA_MCU_RESET_PAIR_NETWORK 0x03
+#define TUYA_MCU_RESET_PAIR_REJOIN 0x01
+
+static void tuya_secondary_mcu_on_command(uint8_t cmd, const uint8_t *data,
+                                          uint16_t data_len)
+{
+    if (cmd == TUYA_MCU_RESET_PAIR_NETWORK &&
+        data_len == 1 && data[0] == TUYA_MCU_RESET_PAIR_REJOIN)
+    {
+        printf("Secondary MCU requested leave+rejoin\r\n");
+        hal_zigbee_leave_network();
+        // app_task() will start network steering once we are no longer joined.
+    }
+}
+
 void app_init(void)
 {
     handle_version_changes();
     parse_config(); // Does most of the setup, including all callbacks
                     // registration
     tuya_secondary_mcu_init(NULL);
+    tuya_secondary_mcu_register_command_callback(tuya_secondary_mcu_on_command);
     hal_zigbee_init_ota();
     init_global_attr_write_callback();
 

@@ -40,6 +40,7 @@ if __name__ == "__main__":
 
         relay_cnt = 0
         switch_cnt = 0
+        dimmer_cnt = 0
         cover_switch_cnt = 0
         cover_cnt = 0
         indicators_cnt = 0
@@ -52,6 +53,8 @@ if __name__ == "__main__":
                 relay_cnt += 1
             if peripheral[0] == "S":
                 switch_cnt += 1
+            if peripheral[:2] == "DM":
+                dimmer_cnt = max(dimmer_cnt, int(peripheral[2:]))
             if peripheral[0] == "X":
                 cover_switch_cnt += 1
             if peripheral[0] == "C":
@@ -105,6 +108,15 @@ if __name__ == "__main__":
         else:
             cover_names = [f"cover_{index}" for index in range(cover_cnt)]
 
+        if dimmer_cnt == 1:
+            dimmer_names = ["dimmer"]
+        elif dimmer_cnt == 2:
+            dimmer_names = ["dimmer_left", "dimmer_right"]
+        elif dimmer_cnt == 3:
+            dimmer_names = ["dimmer_left", "dimmer_middle", "dimmer_right"]
+        else:
+            dimmer_names = [f"dimmer_{index}" for index in range(dimmer_cnt)]
+
         devices.append(
             {
                 "zb_models": [zb_model] + (device.get("old_zb_models") or []),
@@ -115,6 +127,7 @@ if __name__ == "__main__":
                 "relayIndicatorNames": relay_names[:indicators_cnt],
                 "coverSwitchNames": cover_switch_names,
                 "coverNames": cover_names,
+                "dimmerNames": dimmer_names,
                 "has_dedicated_net_led": has_dedicated_net_led,
                 "has_battery_cluster": has_battery_cluster,
             }

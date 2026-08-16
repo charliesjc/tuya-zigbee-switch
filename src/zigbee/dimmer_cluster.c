@@ -198,6 +198,15 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
   SETUP_ATTR(1, ZCL_ATTR_START_UP_ONOFF, ZCL_DATA_TYPE_ENUM8, ATTR_WRITABLE, cluster->startup_mode);
   SETUP_ATTR(2, ZCL_ATTR_LEVEL_CURRENT_LEVEL, ZCL_DATA_TYPE_UINT8, ATTR_READONLY, cluster->current_level);
 
+  // Config cluster: min/max brightness and switch type as writable attributes,
+  // so Zigbee2MQTT can render sliders/buttons bound to these.
+  SETUP_ATTR_FOR_TABLE(cluster->config_attr_infos, 0, ZCL_ATTR_DIMMER_CONFIG_MIN_LEVEL,
+                       ZCL_DATA_TYPE_UINT8, ATTR_WRITABLE, cluster->min_level);
+  SETUP_ATTR_FOR_TABLE(cluster->config_attr_infos, 1, ZCL_ATTR_DIMMER_CONFIG_MAX_LEVEL,
+                       ZCL_DATA_TYPE_UINT8, ATTR_WRITABLE, cluster->max_level);
+  SETUP_ATTR_FOR_TABLE(cluster->config_attr_infos, 2, ZCL_ATTR_DIMMER_CONFIG_SWITCH_TYPE,
+                       ZCL_DATA_TYPE_ENUM8, ATTR_WRITABLE, cluster->switch_type);
+
   endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_ON_OFF;
   endpoint->clusters[endpoint->cluster_count].attribute_count = 2;
   endpoint->clusters[endpoint->cluster_count].attributes = cluster->attr_infos;
@@ -212,6 +221,13 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
   endpoint->clusters[endpoint->cluster_count].is_server = 1;
   endpoint->clusters[endpoint->cluster_count].cmd_callback =
       dimmer_cluster_level_callback_trampoline;
+  endpoint->cluster_count++;
+
+  endpoint->clusters[endpoint->cluster_count].cluster_id = ZCL_CLUSTER_DIMMER_CONFIG;
+  endpoint->clusters[endpoint->cluster_count].attribute_count = 3;
+  endpoint->clusters[endpoint->cluster_count].attributes = cluster->config_attr_infos;
+  endpoint->clusters[endpoint->cluster_count].is_server = 1;
+  endpoint->clusters[endpoint->cluster_count].cmd_callback = NULL;
   endpoint->cluster_count++;
 
   // Receive DP state reports from the secondary MCU (e.g. physical button
@@ -238,7 +254,7 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
   }
   if (cluster->switch_type_dpid)
   {
-    uint8_t value = ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE;
+    uint8_t value = cluster->switch_type;
     tuya_secondary_mcu_write_dp(cluster->switch_type_dpid, TUYA_DP_TYPE_ENUM,
                                 &value, sizeof(value));
   }
@@ -271,6 +287,33 @@ void dimmer_cluster_on_write_attr(zigbee_dimmer_cluster *cluster,
     uint8_t value = dimmer_power_on_behavior_value(cluster->startup_mode);
     tuya_secondary_mcu_write_dp(cluster->power_on_behavior_dpid,
                                 TUYA_DP_TYPE_ENUM, &value, sizeof(value));
+  }
+  else if (attribute_id == ZCL_ATTR_DIMMER_CONFIG_MIN_LEVEL)
+  {
+    if (!cluster->min_level_dpid)
+      return;
+    uint8_t value_bytes[4];
+    dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(cluster->min_level),
+                             value_bytes);
+    tuya_secondary_mcu_write_dp(cluster->min_level_dpid, TUYA_DP_TYPE_VALUE,
+                                value_bytes, sizeof(value_bytes));
+  }
+  else if (attribute_id == ZCL_ATTR_DIMMER_CONFIG_MAX_LEVEL)
+  {
+    if (!cluster->max_level_dpid)
+      return;
+    uint8_t value_bytes[4];
+    dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(cluster->max_level),
+                             value_bytes);
+    tuya_secondary_mcu_write_dp(cluster->max_level_dpid, TUYA_DP_TYPE_VALUE,
+                                value_bytes, sizeof(value_bytes));
+  }
+  else if (attribute_id == ZCL_ATTR_DIMMER_CONFIG_SWITCH_TYPE)
+  {
+    if (!cluster->switch_type_dpid)
+      return;
+    tuya_secondary_mcu_write_dp(cluster->switch_type_dpid, TUYA_DP_TYPE_ENUM,
+                                &cluster->switch_type, sizeof(cluster->switch_type));
   }
 }
 

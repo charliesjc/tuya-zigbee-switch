@@ -297,6 +297,8 @@ void parse_config()
                 dimmer_clusters[dimmer_clusters_cnt].current_level = 0;
                 dimmer_clusters[dimmer_clusters_cnt].min_level = 1;
                 dimmer_clusters[dimmer_clusters_cnt].max_level = 100;
+                dimmer_clusters[dimmer_clusters_cnt].switch_type =
+                    ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE;
                 dimmer_clusters[dimmer_clusters_cnt].on = 0;
                 dimmer_clusters_cnt++;
             }

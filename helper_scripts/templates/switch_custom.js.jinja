@@ -3,6 +3,7 @@ const {
     enumLookup,
     deviceEndpoints,
     onOff,
+    light,
     text,
     binary,
     windowCovering,
@@ -241,8 +242,18 @@ const romasku = {
                         ;
                     } else if(part[0] == 'i') {
                         ; // TODO: write validation
+                    } else if (part[0] == 'D' && part[1] == 'M') {
+                        if (!/^DM\d+$/.test(part)) {
+                            throw new Error(`Dimmer count option ${part} is invalid. Use DM<N>, e.g. DM2`);
+                        }
+                    } else if (part[0] == 'P') {
+                        // Pxx... per-dimmer DPID mapping; only the 0-based dimmer
+                        // sequence index (2 hex digits) is validated here.
+                        if (!/^P[0-9A-Fa-f]{2}[OLSMX][0-9A-Fa-f]{2}/.test(part)) {
+                            throw new Error(`Dimmer DPID map ${part} is invalid. Use P<idx>O<oo>L<ll>S<ss>M<mm>X<xx> (hex), e.g. P08O01L08`);
+                        }
                     } else {
-                        throw new Error(`Invalid entry ${part}. Should start with one of B, BT, C, D, I, L, M, R, S, SLP, X, i`);
+                        throw new Error(`Invalid entry ${part}. Should start with one of B, BT, C, D, DM, I, L, M, P, R, S, SLP, X, i`);
                     }
                 }
             },
@@ -358,6 +369,48 @@ const romasku = {
             description: "Reverse motor direction (swap OPEN/CLOSE relays)",
             entityCategory: "config",
         }),
+    dimmerMinLevel: (name, endpointName) =>
+        numeric({
+            name,
+            endpointName,
+            cluster: "manuSpecificTuyaDimmerConfig",
+            attribute: "minLevel",
+            valueMin: 0,
+            valueMax: 254,
+            unit: "%",
+            entityCategory: "config",
+        }),
+    dimmerMaxLevel: (name, endpointName) =>
+        numeric({
+            name,
+            endpointName,
+            cluster: "manuSpecificTuyaDimmerConfig",
+            attribute: "maxLevel",
+            valueMin: 0,
+            valueMax: 254,
+            unit: "%",
+            entityCategory: "config",
+        }),
+    dimmerSwitchType: (name, endpointName) =>
+        enumLookup({
+            name,
+            endpointName,
+            lookup: { toggle: 0, state: 1, momentary: 2 },
+            cluster: "manuSpecificTuyaDimmerConfig",
+            attribute: "switchType",
+            description: "Type of physical dimmer/switch",
+            entityCategory: "config",
+        }),
+    dimmerPowerOnBehavior: (name, endpointName) =>
+        enumLookup({
+            name,
+            endpointName,
+            lookup: { off: 0, on: 1, previous: 255 },
+            cluster: "genOnOff",
+            attribute: "startUpOnOff",
+            description: "Behavior when power is restored (previous = memory)",
+            entityCategory: "config",
+        }),
 };
 
 const definitions = [
@@ -371,7 +424,7 @@ const definitions = [
         model: "{{device.model}}",
         vendor: "Tuya-custom",
         description: "Custom switch (https://github.com/romasku/tuya-zigbee-switch)",
-        {% set first_endpoint = device.switchNames[0] if device.switchNames else (device.relayNames[0] if device.relayNames else device.coverNames[0]) %}
+        {% set first_endpoint = device.switchNames[0] if device.switchNames else (device.relayNames[0] if device.relayNames else (device.coverNames[0] if device.coverNames else device.dimmerNames[0])) %}
         extend: [
             {% if device.has_battery_cluster %}
             romasku.batteryPercentage(),
@@ -414,8 +467,11 @@ const definitions = [
                 {%- for coverName in device.coverNames -%}
                     "{{coverName}}": {{loop.index + (device.switchNames | length) + (device.relayNames | length) + (device.coverSwitchNames | length)}},{{" "}}
                 {%- endfor -%}
+                {%- for dimmerName in device.dimmerNames -%}
+                    "{{dimmerName}}": {{loop.index + (device.switchNames | length) + (device.relayNames | length) + (device.coverSwitchNames | length) + (device.coverNames | length)}},{{" "}}
+                {%- endfor -%}
             } }),
-            {% set first_endpoint = device.switchNames[0] if device.switchNames else (device.relayNames[0] if device.relayNames else (device.coverSwitchNames[0] if device.coverSwitchNames else device.coverNames[0])) %}
+            {% set first_endpoint = device.switchNames[0] if device.switchNames else (device.relayNames[0] if device.relayNames else (device.coverSwitchNames[0] if device.coverSwitchNames else (device.coverNames[0] if device.coverNames else device.dimmerNames[0]))) %}
             romasku.deviceConfig("device_config", "{{first_endpoint}}"),
             romasku.multiPressResetCount("multi_press_reset_count", "{{first_endpoint}}"),
             {% if device.has_dedicated_net_led %}
@@ -450,16 +506,36 @@ const definitions = [
             romasku.coverMoving("{{coverName}}_moving", "{{coverName}}"),
             romasku.coverMotorReversal("{{coverName}}_motor_reversal", "{{coverName}}"),
             {% endfor %}
-            {% for coverSwitchName in device.coverSwitchNames %}
-            romasku.coverSwitchPressAction("{{coverSwitchName}}_press_action", "{{coverSwitchName}}"),
-            romasku.coverSwitchType("{{coverSwitchName}}_type", "{{coverSwitchName}}"),
-            romasku.coverSwitchInvert("{{coverSwitchName}}_invert", "{{coverSwitchName}}"),
+            {% for coverSwitch in device.coverSwitchNames %}
+            romasku.coverSwitchPressAction("{{coverSwitch}}_press_action", "{{coverSwitch}}"),
+            romasku.coverSwitchType("{{coverSwitch}}_type", "{{coverSwitch}}"),
+            romasku.coverSwitchInvert("{{coverSwitch}}_invert", "{{coverSwitch}}"),
             {% if device.coverNames %}
-            romasku.coverSwitchCoverIndex("{{coverSwitchName}}_cover_index", "{{coverSwitchName}}", {{device.coverNames | length}}),
-            romasku.coverSwitchLocalMode("{{coverSwitchName}}_local_mode", "{{coverSwitchName}}"),
+            romasku.coverSwitchCoverIndex("{{coverSwitch}}_cover_index", "{{coverSwitch}}", {{device.coverNames | length}}),
+            romasku.coverSwitchLocalMode("{{coverSwitch}}_local_mode", "{{coverSwitch}}"),
             {% endif %}
-            romasku.coverSwitchBindedMode("{{coverSwitchName}}_binded_mode", "{{coverSwitchName}}"),
-            romasku.coverSwitchLongPressDuration("{{coverSwitchName}}_long_press_duration", "{{coverSwitchName}}"),
+            romasku.coverSwitchBindedMode("{{coverSwitch}}_binded_mode", "{{coverSwitch}}"),
+            romasku.coverSwitchLongPressDuration("{{coverSwitch}}_long_press_duration", "{{coverSwitch}}"),
+            {% endfor %}
+            {% if device.dimmerNames %}
+            deviceAddCustomCluster("manuSpecificTuyaDimmerConfig", {
+                ID: 0xFC10,
+                manufacturerCode: 0x125D,
+                attributes: {
+                    switchType: {ID: 0x0000, type: Zcl.DataType.ENUM8, write: true},
+                    minLevel: {ID: 0x0001, type: Zcl.DataType.UINT8, write: true},
+                    maxLevel: {ID: 0x0002, type: Zcl.DataType.UINT8, write: true},
+                },
+                commands: {},
+                commandsResponse: {},
+            }),
+            {% endif %}
+            {% for dimmerName in device.dimmerNames %}
+            light({ endpointNames: ["{{dimmerName}}"] }),
+            romasku.dimmerMinLevel("{{dimmerName}}_min_level", "{{dimmerName}}"),
+            romasku.dimmerMaxLevel("{{dimmerName}}_max_level", "{{dimmerName}}"),
+            romasku.dimmerSwitchType("{{dimmerName}}_switch_type", "{{dimmerName}}"),
+            romasku.dimmerPowerOnBehavior("{{dimmerName}}_power_on_behavior", "{{dimmerName}}"),
             {% endfor %}
         ],
         meta: { multiEndpoint: true },
@@ -530,6 +606,24 @@ const definitions = [
             await cover{{loop.index}}.configureReporting("closuresWindowCovering", [
                 {
                     attribute: "moving",
+                    minimumReportInterval: 0,
+                    maximumReportInterval: constants.repInterval.MAX,
+                    reportableChange: 1,
+                },
+            ]);
+            {% endfor %}
+            {% for dimmerName in device.dimmerNames %}
+            const dimmer{{loop.index}}Dp = {{loop.index + (device.switchNames | length) + (device.relayNames | length) + (device.coverSwitchNames | length) + (device.coverNames | length)}};
+            const dimmer{{loop.index}} = device.getEndpoint(dimmer{{loop.index}}Dp);
+            await reporting.bind(dimmer{{loop.index}}, coordinatorEndpoint, ["genOnOff", "genLevelCtrl"]);
+            await reporting.onOff(dimmer{{loop.index}}, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            await dimmer{{loop.index}}.configureReporting("genLevelCtrl", [
+                {
+                    attribute: "currentLevel",
                     minimumReportInterval: 0,
                     maximumReportInterval: constants.repInterval.MAX,
                     reportableChange: 1,

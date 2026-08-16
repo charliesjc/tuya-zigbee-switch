@@ -14,10 +14,12 @@ typedef struct
   uint8_t min_level_dpid;
   uint8_t max_level_dpid;
   uint8_t power_on_behavior_dpid;
-  hal_zigbee_attribute attr_infos[4];
+  hal_zigbee_attribute attr_infos[3];        // OGF: onoff, startup, current_level
+  hal_zigbee_attribute config_attr_infos[3]; // min/max/switch_type
   uint8_t current_level;
   uint8_t min_level;
   uint8_t max_level;
+  uint8_t switch_type;
   uint8_t on;
 } zigbee_dimmer_cluster;
 
