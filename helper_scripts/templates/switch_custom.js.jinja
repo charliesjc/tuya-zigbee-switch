@@ -521,6 +521,19 @@ const definitions = [
             romasku.coverSwitchBindedMode("{{coverSwitch}}_binded_mode", "{{coverSwitch}}"),
             romasku.coverSwitchLongPressDuration("{{coverSwitch}}_long_press_duration", "{{coverSwitch}}"),
             {% endfor %}
+            {% if device.dimmerNames %}
+            // genOnOffSwitchCfg.switchType is read-only per ZCL spec; override it
+            // as writable so Z2M accepts writing the dimmer switch type
+            // (same pattern as Slacky-DIY / custom_devices_diy.ts).
+            deviceAddCustomCluster("genOnOffSwitchCfg", {
+                ID: 0x0007,
+                attributes: {
+                    switchType: {ID: 0x0000, type: Zcl.DataType.ENUM8, write: true},
+                },
+                commands: {},
+                commandsResponse: {},
+            }),
+            {% endif %}
             {% for dimmerName in device.dimmerNames %}
             light({ endpointNames: ["{{dimmerName}}"], effect: false, powerOnBehavior: false }),
             romasku.dimmerMinLevel("{{dimmerName}}_min_level", "{{dimmerName}}"),

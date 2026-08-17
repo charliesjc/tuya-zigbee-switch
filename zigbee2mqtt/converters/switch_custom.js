@@ -2460,6 +2460,17 @@ const definitions = [
             deviceEndpoints({ endpoints: { "dimmer_left": 1, "dimmer_right": 2, } }),
             romasku.deviceConfig("device_config", "dimmer_left"),
             light({ endpointNames: ["dimmer_left"], effect: false, powerOnBehavior: false }),
+            // genOnOffSwitchCfg.switchType is read-only per ZCL spec; override it
+            // as writable so Z2M accepts writing the dimmer switch type
+            // (same pattern as Slacky-DIY / custom_devices_diy.ts).
+            deviceAddCustomCluster("genOnOffSwitchCfg", {
+                ID: 0x0007,
+                attributes: {
+                    switchType: { ID: 0x0000, type: Zcl.DataType.ENUM8, write: true },
+                },
+                commands: {},
+                commandsResponse: {},
+            }),
             romasku.dimmerMinLevel("dimmer_left_min_level", "dimmer_left"),
             romasku.dimmerMaxLevel("dimmer_left_max_level", "dimmer_left"),
             romasku.dimmerSwitchType("dimmer_left_switch_type", "dimmer_left"),
