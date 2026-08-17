@@ -1,7 +1,9 @@
 #include "zigbee/tuya_secondary_mcu.h"
 #include "hal/uart.h"
+#include "hal/printf_selector.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 static bool g_tuya_secondary_mcu_enabled = false;
@@ -10,6 +12,14 @@ static bool g_tuya_secondary_mcu_enabled = false;
 // original firmware hardcoded 0x0100 for module->MCU frames, but the protocol
 // expects a proper incrementing sequence on both directions.
 static uint16_t g_tx_seq = 0;
+
+static void tuya_debug_hex(const char *tag, const uint8_t *buf, uint16_t len) {
+    printf("[MCU] %s (%u):", tag, (unsigned)len);
+    for (uint16_t i = 0; i < len; i++) {
+        printf(" %02X", buf[i]);
+    }
+    printf("\r\n");
+}
 
 static uint8_t tuya_checksum(const uint8_t *buf, uint16_t len) {
     // Checksum is the plain sum of all preceding bytes mod 256
@@ -129,7 +139,7 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
     memset(&frame, 0, sizeof(frame));
 
     frame.seq       = g_tx_seq;
-    g_tx_seq        = (uint16_t)((g_tx_seq + 1) & 0xFFF0);
+    g_tx_seq        = (uint16_t)((g_tx_seq + 0x10) & 0xFFF0);
     frame.cmd       = TUYA_MCU_CMD_WRITE;
     frame.dpid      = dpid;
     frame.dp_type   = dp_type;
@@ -170,6 +180,7 @@ int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
     if (status != 0) {
         return status;
     }
+    tuya_debug_hex("TX", buffer, written);
     return hal_uart_write(buffer, written, NULL) == HAL_UART_OK ? 0 : -1;
 }
 
@@ -219,6 +230,7 @@ static void tuya_secondary_mcu_process_assembly(void) {
         }
 
         tuya_secondary_mcu_frame_t frame;
+        tuya_debug_hex("RX raw", g_rx_assembly, frame_len);
         int decode_status =
             tuya_secondary_mcu_decode_frame(g_rx_assembly, frame_len, &frame);
 

@@ -2,6 +2,7 @@
 #include "zigbee/cluster_common.h"
 #include "zigbee/consts.h"
 #include "zigbee/tuya_secondary_mcu.h"
+#include "hal/printf_selector.h"
 
 static zigbee_dimmer_cluster *dimmer_cluster_by_endpoint[10];
 
@@ -120,6 +121,7 @@ static hal_zigbee_cmd_result_t dimmer_cluster_callback(zigbee_dimmer_cluster *cl
                                                        uint8_t command_id,
                                                        void *cmd_payload,
                                                        uint16_t cmd_payload_len) {
+    printf("[DIMMER] ep=%u onoff cmd=0x%02X\r\n", cluster->endpoint, command_id);
     switch (command_id) {
     case ZCL_CMD_ONOFF_ON:
     case ZCL_CMD_ON_WITH_RECALL_GLOBAL_SCENE:
@@ -160,6 +162,7 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
                                                              uint8_t command_id,
                                                              void *cmd_payload,
                                                              uint16_t cmd_payload_len) {
+    printf("[DIMMER] ep=%u level cmd=0x%02X\r\n", cluster->endpoint, command_id);
     switch (command_id) {
     case ZCL_CMD_LEVEL_MOVE_TO_LEVEL_WITH_ON_OFF:
         if (cmd_payload == NULL || cmd_payload_len < 1)
