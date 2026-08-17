@@ -715,7 +715,7 @@ MODULE_AVATTO_TS0013:
   threads: https://github.com/romasku/tuya-zigbee-switch/issues/135
   store: https://www.aliexpress.com/item/1005007247647375.html
 MODULE_AVATTO_ZDMS16_2:
-  human_name: AVATTO ZDMS16-2 <br> Tuya dimmer (2 gang)
+  human_name: AVATTO ZDMS16-2
   category: module
   power: mains
   neutral: required
@@ -725,7 +725,7 @@ MODULE_AVATTO_ZDMS16_2:
   stock_manufacturer_name: _TZE284_jtbgusdc
   stock_converter_manufacturer: Tuya
   stock_converter_model: TS0601_switch
-  override_z2m_device: TS0601_dimmer_2_gang
+  override_z2m_device: ZDMS16-2
   tuya_module: ZTU
   mcu_family: Telink
   mcu: TLSR8258
