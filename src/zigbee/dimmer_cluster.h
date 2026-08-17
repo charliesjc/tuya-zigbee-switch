@@ -13,8 +13,9 @@ typedef struct {
     uint8_t              min_level_dpid;
     uint8_t              max_level_dpid;
     uint8_t              power_on_behavior_dpid;
-    hal_zigbee_attribute attr_infos[3];        // OGF: onoff, startup, current_level
-    hal_zigbee_attribute config_attr_infos[3]; // min/max/switch_type
+    hal_zigbee_attribute attr_infos[3];             // onoff, startup, current_level
+    hal_zigbee_attribute ballast_attr_infos[2];     // min/max level (lightingBallastCfg)
+    hal_zigbee_attribute switch_type_attr_infos[1]; // switch type (genOnOffSwitchCfg)
     uint8_t              current_level;
     uint8_t              min_level;
     uint8_t              max_level;

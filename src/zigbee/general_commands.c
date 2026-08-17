@@ -19,15 +19,18 @@ static void zigbee_on_attr_change(uint8_t endpoint, uint16_t cluster_id,
     }
     else if (cluster_id == ZCL_CLUSTER_ON_OFF_SWITCH_CONFIG)
     {
+        // genOnOffSwitchCfg is shared by switches and dimmers; each trampoline
+        // no-ops on endpoints it does not own.
         switch_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
+        dimmer_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
+    }
+    else if (cluster_id == ZCL_CLUSTER_LIGHTING_BALLAST_CONFIG)
+    {
+        dimmer_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
     }
     else if (cluster_id == ZCL_CLUSTER_COVER_SWITCH_CONFIG)
     {
         cover_switch_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
-    }
-    else if (cluster_id == ZCL_CLUSTER_DIMMER_CONFIG)
-    {
-        dimmer_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
     }
     else if (cluster_id == ZCL_CLUSTER_ON_OFF)
     {

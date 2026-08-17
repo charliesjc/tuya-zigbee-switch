@@ -377,9 +377,9 @@ const romasku = {
         numeric({
             name,
             endpointName,
-            cluster: "manuSpecificTuyaDimmerConfig",
+            cluster: "lightingBallastCfg",
             attribute: "minLevel",
-            valueMin: 0,
+            valueMin: 1,
             valueMax: 254,
             unit: "%",
             entityCategory: "config",
@@ -388,9 +388,9 @@ const romasku = {
         numeric({
             name,
             endpointName,
-            cluster: "manuSpecificTuyaDimmerConfig",
+            cluster: "lightingBallastCfg",
             attribute: "maxLevel",
-            valueMin: 0,
+            valueMin: 1,
             valueMax: 254,
             unit: "%",
             entityCategory: "config",
@@ -400,7 +400,7 @@ const romasku = {
             name,
             endpointName,
             lookup: { toggle: 0, state: 1, momentary: 2 },
-            cluster: "manuSpecificTuyaDimmerConfig",
+            cluster: "genOnOffSwitchCfg",
             attribute: "switchType",
             description: "Type of physical dimmer/switch",
             entityCategory: "config",
@@ -521,19 +521,6 @@ const definitions = [
             romasku.coverSwitchBindedMode("{{coverSwitch}}_binded_mode", "{{coverSwitch}}"),
             romasku.coverSwitchLongPressDuration("{{coverSwitch}}_long_press_duration", "{{coverSwitch}}"),
             {% endfor %}
-            {% if device.dimmerNames %}
-            deviceAddCustomCluster("manuSpecificTuyaDimmerConfig", {
-                ID: 0xFC10,
-                manufacturerCode: 0x125D,
-                attributes: {
-                    switchType: {ID: 0x0000, type: Zcl.DataType.ENUM8, write: true},
-                    minLevel: {ID: 0x0001, type: Zcl.DataType.UINT8, write: true},
-                    maxLevel: {ID: 0x0002, type: Zcl.DataType.UINT8, write: true},
-                },
-                commands: {},
-                commandsResponse: {},
-            }),
-            {% endif %}
             {% for dimmerName in device.dimmerNames %}
             light({ endpointNames: ["{{dimmerName}}"], effect: false, powerOnBehavior: false }),
             romasku.dimmerMinLevel("{{dimmerName}}_min_level", "{{dimmerName}}"),
