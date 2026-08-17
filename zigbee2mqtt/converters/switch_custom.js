@@ -213,6 +213,10 @@ const romasku = {
                 for (const part of parts.slice(2)) {
                     if (part == 'SLP') {
                         continue;   
+                    } else if (part.startsWith('DM')) {
+                        if (!/^DM\d+$/.test(part)) {
+                            throw new Error(`Dimmer count option ${part} is invalid. Use DM<N>, e.g. DM2`);
+                        }
                     } else if (part[0] == 'D') {
                         if (!/^D\d+$/.test(part)) {
                             throw new Error(`Debounce option ${part} is invalid. Use D<N>, e.g. D100 or D0`);
@@ -237,12 +241,12 @@ const romasku = {
                         validatePin(part.slice(1,3));
                     } else if(part[0] == 'M') {
                         ;
+                    } else if(part[0] == 'U') {
+                        if (!/^U[0-9A-Fa-f]{2}$/.test(part)) {
+                            throw new Error(`Universal power-on DPID ${part} is invalid. Use U<hh> (hex), e.g. U0E`);
+                        }
                     } else if(part[0] == 'i') {
                         ; // TODO: write validation
-                    } else if (part[0] == 'D' && part[1] == 'M') {
-                        if (!/^DM\d+$/.test(part)) {
-                            throw new Error(`Dimmer count option ${part} is invalid. Use DM<N>, e.g. DM2`);
-                        }
                     } else if (part[0] == 'P') {
                         // Pxx... per-dimmer DPID mapping; only the 0-based dimmer
                         // sequence index (2 hex digits) is validated here.
@@ -401,7 +405,7 @@ const romasku = {
     dimmerPowerOnBehavior: (name, endpointName) =>
         enumLookup({
             name,
-            endpointName,
+            ...(endpointName ? {endpointName} : {}),
             lookup: { off: 0, on: 1, previous: 255 },
             cluster: "genOnOff",
             attribute: "startUpOnOff",
@@ -2467,16 +2471,16 @@ const definitions = [
                 commands: {},
                 commandsResponse: {},
             }),
-            light({ endpointNames: ["dimmer_left"] }),
+            light({ endpointNames: ["dimmer_left"], effect: false, powerOnBehavior: false }),
             romasku.dimmerMinLevel("dimmer_left_min_level", "dimmer_left"),
             romasku.dimmerMaxLevel("dimmer_left_max_level", "dimmer_left"),
             romasku.dimmerSwitchType("dimmer_left_switch_type", "dimmer_left"),
-            romasku.dimmerPowerOnBehavior("dimmer_left_power_on_behavior", "dimmer_left"),
-            light({ endpointNames: ["dimmer_right"] }),
+            light({ endpointNames: ["dimmer_right"], effect: false, powerOnBehavior: false }),
             romasku.dimmerMinLevel("dimmer_right_min_level", "dimmer_right"),
             romasku.dimmerMaxLevel("dimmer_right_max_level", "dimmer_right"),
             romasku.dimmerSwitchType("dimmer_right_switch_type", "dimmer_right"),
-            romasku.dimmerPowerOnBehavior("dimmer_right_power_on_behavior", "dimmer_right"),
+            // Universal power-on behavior (shared DP, e.g. U0E) - one expose only.
+            romasku.dimmerPowerOnBehavior("power_on_behavior"),
         ],
         meta: { multiEndpoint: true },
         configure: async (device, coordinatorEndpoint, logger) => {
