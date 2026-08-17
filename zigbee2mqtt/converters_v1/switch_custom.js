@@ -2452,9 +2452,9 @@ const definitions = [
     },
     {
         zigbeeModel: [
-            "TS0601-DIM",
+            "TS0601",
         ],
-        model: "TS0601_dimmer_2_gang",
+        model: "ZDMS16-2",
         vendor: "Tuya-custom",
         description: "Custom switch (https://github.com/romasku/tuya-zigbee-switch)",
         extend: [

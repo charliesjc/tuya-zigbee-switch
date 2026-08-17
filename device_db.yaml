@@ -735,7 +735,7 @@ MODULE_AVATTO_ZDMS16_2:
   #   L2 (idx 0x01): onoff=0x07 level=0x08 switch_type=0x0A min=0x09 max=0x0B
   #   U0E = shared power-on-behavior DPID. No GPIO LED/switch on this board:
   #   all controls go via the secondary MCU UART, so there are no L/S tokens.
-  config_str: jtbgusdc;TS0601-DIM;DM2;P00O01L02S04M03X05;P01O07L08S0AM09X0B;U0E;M;
+  config_str: jtbgusdc;TS0601;DM2;P00O01L02S04M03X05;P01O07L08S0AM09X0B;U0E;M;
   alt_config_str: null
   old_manufacturer_names: null
   old_zb_models: null
