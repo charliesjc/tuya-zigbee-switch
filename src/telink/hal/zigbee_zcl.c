@@ -207,7 +207,8 @@ void telink_zigbee_hal_zcl_init(hal_zigbee_endpoint *endpoints,
                 continue;
             }
             cluster_info_ptr->clusterId           = cluster->cluster_id;
-            cluster_info_ptr->manuCode            = 0;
+            cluster_info_ptr->manuCode            =
+                (cluster->cluster_id >= 0xFC00) ? 0x125D : 0;
             cluster_info_ptr->attrTbl             = attr_table_ptr;
             cluster_info_ptr->attrNum             = 0;
             cluster_info_ptr->clusterRegisterFunc =
