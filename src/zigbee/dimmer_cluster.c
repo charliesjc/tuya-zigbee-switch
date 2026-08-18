@@ -88,13 +88,11 @@ static uint32_t dimmer_decode_tuya_value(const uint8_t *value, uint16_t value_le
 }
 
 void dimmer_cluster_on(zigbee_dimmer_cluster *cluster) {
-    cluster->on            = 1;
-    cluster->current_level = cluster->max_level;
+    cluster->on = 1;
 }
 
 void dimmer_cluster_off(zigbee_dimmer_cluster *cluster) {
-    cluster->on            = 0;
-    cluster->current_level = 0;
+    cluster->on = 0;
 }
 
 void dimmer_cluster_set_level(zigbee_dimmer_cluster *cluster, uint8_t level) {
@@ -172,6 +170,13 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
             uint8_t level = *(uint8_t *)cmd_payload;
             dimmer_cluster_set_level(cluster, level);
 
+            /* dimmer_cluster_set_level() clamps the requested level into
+             * cluster->current_level using min_level/max_level. Use the
+             * clamped value for both the OnOff decision and the level DP, so
+             * values above max_level or below min_level don't get sent to the
+             * MCU unconstrained. */
+            uint8_t clamped = cluster->current_level;
+
             /* Per ZCL, MoveToLevelWithOnOff also changes the OnOff state:
              * on if the target level is > 0, off if it is 0. Home Assistant
              * uses this command to "turn on" a light (it never sends a plain
@@ -179,14 +184,14 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
              * the MCU would dim but never switch the relay on. */
             {
                 uint8_t dpid   = dimmer_get_onoff_dpid(cluster);
-                uint8_t onoff  = (level > 0) ? 1 : 0;
+                uint8_t onoff  = (clamped > 0) ? 1 : 0;
                 tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &onoff,
                                             sizeof(onoff));
             }
 
             uint8_t dpid = dimmer_get_level_dpid(cluster);
             uint8_t level_value[4];
-            dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(level), level_value);
+            dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(clamped), level_value);
             tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE, level_value, sizeof(level_value));
         }
         break;
@@ -346,6 +351,8 @@ static void dimmer_cluster_on_dp_report(uint8_t dpid, uint8_t dp_type,
         if (dp_type == TUYA_DP_TYPE_BOOL && dpid == dimmer_get_onoff_dpid(cluster)) {
             if (value_len < 1)
                 continue;
+            /* Physical button state change: only update on/off. Brightness is
+             * independent and stays at whatever Z2M last had. */
             cluster->on = value[0] ? 1 : 0;
             hal_zigbee_notify_attribute_changed(cluster->endpoint, ZCL_CLUSTER_ON_OFF,
                                                 ZCL_ATTR_ONOFF);
