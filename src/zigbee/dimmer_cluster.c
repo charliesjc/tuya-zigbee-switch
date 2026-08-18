@@ -171,6 +171,19 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
         {
             uint8_t level = *(uint8_t *)cmd_payload;
             dimmer_cluster_set_level(cluster, level);
+
+            /* Per ZCL, MoveToLevelWithOnOff also changes the OnOff state:
+             * on if the target level is > 0, off if it is 0. Home Assistant
+             * uses this command to "turn on" a light (it never sends a plain
+             * OnOff ON for dimmers), so we MUST also write the on/off DP or
+             * the MCU would dim but never switch the relay on. */
+            {
+                uint8_t dpid   = dimmer_get_onoff_dpid(cluster);
+                uint8_t onoff  = (level > 0) ? 1 : 0;
+                tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &onoff,
+                                            sizeof(onoff));
+            }
+
             uint8_t dpid = dimmer_get_level_dpid(cluster);
             uint8_t level_value[4];
             dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(level), level_value);
