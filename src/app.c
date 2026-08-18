@@ -70,8 +70,16 @@ void app_init(void)
     handle_version_changes();
     parse_config(); // Does most of the setup, including all callbacks
                     // registration
-    tuya_secondary_mcu_init(NULL);
-    tuya_secondary_mcu_register_command_callback(tuya_secondary_mcu_on_command);
+
+    // Only devices with dimmers have a secondary MCU over UART. Initialising
+    // the UART on every device would reassign PB1/PB7 as UART pins on the
+    // many Telink boards that use those pins as GPIOs, so gate it on the
+    // parsed dimmer count.
+    if (dimmer_clusters_cnt > 0)
+    {
+        tuya_secondary_mcu_init(NULL);
+        tuya_secondary_mcu_register_command_callback(tuya_secondary_mcu_on_command);
+    }
     hal_zigbee_init_ota();
     init_global_attr_write_callback();
 
@@ -86,7 +94,10 @@ void app_task()
     poll_control_cluster_update();
 #endif
 
-    tuya_secondary_mcu_poll();
+    if (dimmer_clusters_cnt > 0)
+    {
+        tuya_secondary_mcu_poll();
+    }
 
     // TODO: add jitter to avoid all devices trying to join at once
     if (hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED &&
