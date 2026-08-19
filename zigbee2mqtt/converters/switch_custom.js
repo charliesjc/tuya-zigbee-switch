@@ -376,11 +376,8 @@ const romasku = {
             endpointName,
             cluster: "lightingBallastCfg",
             attribute: "minLevel",
-            valueMin: 0,
-            valueMax: 100,
-            unit: "%",
-            /* minLevel/maxLevel are ZCL raw 0-254; expose as 0-100 %. */
-            scale: (value, type) => type === "from" ? Math.round(value * 100 / 254) : Math.round(value * 254 / 100),
+            valueMin: 1,
+            valueMax: 254,
             entityCategory: "config",
         }),
     dimmerMaxLevel: (name, endpointName) =>
@@ -389,11 +386,8 @@ const romasku = {
             endpointName,
             cluster: "lightingBallastCfg",
             attribute: "maxLevel",
-            valueMin: 0,
-            valueMax: 100,
-            unit: "%",
-            /* minLevel/maxLevel are ZCL raw 0-254; expose as 0-100 %. */
-            scale: (value, type) => type === "from" ? Math.round(value * 100 / 254) : Math.round(value * 254 / 100),
+            valueMin: 1,
+            valueMax: 254,
             entityCategory: "config",
         }),
     dimmerSwitchType: (name, endpointName) =>

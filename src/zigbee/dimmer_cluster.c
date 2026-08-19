@@ -96,10 +96,9 @@ void dimmer_cluster_off(zigbee_dimmer_cluster *cluster) {
 }
 
 void dimmer_cluster_set_level(zigbee_dimmer_cluster *cluster, uint8_t level) {
-    if (level < cluster->min_level)
-        level = cluster->min_level;
-    if (level > cluster->max_level)
-        level = cluster->max_level;
+    /* No software clamp: min/max_level only constrain the hardware wall-button
+     * range via the MCU (pushed through min/max DPIDs). Z2M brightness is raw
+     * ZCL 0-254 and is not clamped here (matches stock firmware behaviour). */
     cluster->current_level = level;
     cluster->on            = level != 0;
 }
@@ -170,13 +169,6 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
             uint8_t level = *(uint8_t *)cmd_payload;
             dimmer_cluster_set_level(cluster, level);
 
-            /* dimmer_cluster_set_level() clamps the requested level into
-             * cluster->current_level using min_level/max_level. Use the
-             * clamped value for both the OnOff decision and the level DP, so
-             * values above max_level or below min_level don't get sent to the
-             * MCU unconstrained. */
-            uint8_t clamped = cluster->current_level;
-
             /* Per ZCL, MoveToLevelWithOnOff also changes the OnOff state:
              * on if the target level is > 0, off if it is 0. Home Assistant
              * uses this command to "turn on" a light (it never sends a plain
@@ -184,14 +176,14 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
              * the MCU would dim but never switch the relay on. */
             {
                 uint8_t dpid   = dimmer_get_onoff_dpid(cluster);
-                uint8_t onoff  = (clamped > 0) ? 1 : 0;
+                uint8_t onoff  = (level > 0) ? 1 : 0;
                 tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &onoff,
                                             sizeof(onoff));
             }
 
             uint8_t dpid = dimmer_get_level_dpid(cluster);
             uint8_t level_value[4];
-            dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(clamped), level_value);
+            dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(level), level_value);
             tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE, level_value, sizeof(level_value));
         }
         break;
