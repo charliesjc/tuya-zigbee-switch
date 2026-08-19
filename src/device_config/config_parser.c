@@ -305,7 +305,14 @@ void parse_config()
         }
         else if (entry[0] == 'U')
         {
-            dimmer_power_on_behavior_dpid = (uint8_t)parse_int(entry + 1);
+            // Universal power-on-behavior DPID, e.g. U0E = 0x0E (hex, like the
+            // Pxx DPID fields). parse_int() is decimal-only and would stop at
+            // the 'E', yielding 0 - so use parse_hex_byte instead.
+            uint8_t dpid;
+            if (parse_hex_byte(entry + 1, &dpid))
+            {
+                dimmer_power_on_behavior_dpid = dpid;
+            }
         }
         else if (entry[0] == 'P')
         {
