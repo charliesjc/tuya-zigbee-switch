@@ -76,6 +76,16 @@ void hal_uart_init(const hal_uart_config_t *cfg) {
      * callback. It enables both RX and TX DMA; we re-disable TX DMA below so
      * the NDMA TX path in hal_uart_write keeps working. */
     uart_gpio_set(MCU_UART_TX_PIN, MCU_UART_RX_PIN);
+
+    /* Pull the UART lines high and strengthen the TX drive. Without this, a
+     * passive tap (e.g. a USB-serial adapter with a pull-down on its input)
+     * can clamp the idle level low and block data flowing past the tap point
+     * to the MCU/module. 10K pull-ups hold the idle-high level; strong drive
+     * keeps the TX line from being pulled down by an adapter's input. */
+    gpio_setup_up_down_resistor(MCU_UART_TX_PIN, PM_PIN_PULLUP_10K);
+    gpio_setup_up_down_resistor(MCU_UART_RX_PIN, PM_PIN_PULLUP_10K);
+    gpio_set_data_strength(MCU_UART_TX_PIN, 1);
+
     if (drv_uart_init(MCU_UART_BAUDRATE, g_uart_rx_dma_buf,
                       UART_RX_DMA_BUF_SIZE, uart_dma_rx_callback) != 0) {
         /* Fall back to plain NDMA init so TX still works even if the DMA RX
