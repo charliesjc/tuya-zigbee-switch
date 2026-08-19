@@ -114,6 +114,52 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback_trampoline(
 static void dimmer_cluster_on_dp_report(uint8_t dpid, uint8_t dp_type,
                                         const uint8_t *value, uint16_t value_len);
 
+/* Ramp one step for wall-switch dimming (ZCL Move). Runs on a periodic task,
+ * stepping current_level toward the move direction and pushing the level DP to
+ * the MCU so the light continuously dims/brightens while held. */
+
+#define DIMMER_RAMP_PERIOD_MS   300
+#define DIMMER_RAMP_STEP        12   /* Matches hardware: ~12 units per 300ms */
+
+static void dimmer_cluster_ramp_step(void *arg) {
+    zigbee_dimmer_cluster *cluster = (zigbee_dimmer_cluster *)arg;
+    if (cluster == NULL || !cluster->move_active)
+        return;
+
+    uint8_t next = cluster->current_level;
+    if (cluster->move_direction) {
+        if (next < 254) {
+            next = (254 - next < DIMMER_RAMP_STEP) ? 254 : next + DIMMER_RAMP_STEP;
+        }
+    } else {
+        if (next > 0) {
+            next = (next < DIMMER_RAMP_STEP) ? 0 : next - DIMMER_RAMP_STEP;
+        }
+    }
+
+    if (next != cluster->current_level) {
+        uint8_t dpid = dimmer_get_level_dpid(cluster);
+        uint8_t level_value[4];
+        dimmer_encode_tuya_value(dimmer_zcl_level_to_tuya_value(next),
+                                 level_value);
+        tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE,
+                                    level_value, sizeof(level_value));
+        cluster->current_level = next;
+        hal_zigbee_notify_attribute_changed(cluster->endpoint,
+                                            ZCL_CLUSTER_LEVEL_CONTROL,
+                                            ZCL_ATTR_LEVEL_CURRENT_LEVEL);
+    }
+
+    if (cluster->move_active) {
+        /* Stop at the range limits (0 or 254). */
+        if ((cluster->move_direction && next >= 254) || (!cluster->move_direction && next <= 0)) {
+            cluster->move_active = 0;
+            return;
+        }
+        hal_tasks_schedule(&cluster->ramp_task, DIMMER_RAMP_PERIOD_MS);
+    }
+}
+
 static hal_zigbee_cmd_result_t dimmer_cluster_callback(zigbee_dimmer_cluster *cluster,
                                                        uint8_t command_id,
                                                        void *cmd_payload,
@@ -187,6 +233,33 @@ static hal_zigbee_cmd_result_t dimmer_cluster_level_callback(zigbee_dimmer_clust
             tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_VALUE, level_value, sizeof(level_value));
         }
         break;
+    case ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF:
+        /* Wall-switch dimming: start ramping up/down. Payload = [direction, rate]. */
+        if (cmd_payload == NULL || cmd_payload_len < 2)
+            return HAL_ZIGBEE_MALFORMED_COMMAND;
+
+        {
+            uint8_t direction = ((uint8_t *)cmd_payload)[0];
+            cluster->move_direction = (direction == ZCL_LEVEL_MOVE_UP) ? 1 : 0;
+            cluster->move_active   = 1;
+
+            /* If it was off and moving up, turn it on first. */
+            if (!cluster->on && cluster->move_direction) {
+                uint8_t dpid  = dimmer_get_onoff_dpid(cluster);
+                uint8_t onoff = 1;
+                tuya_secondary_mcu_write_dp(dpid, TUYA_DP_TYPE_BOOL, &onoff,
+                                            sizeof(onoff));
+                cluster->on = 1;
+            }
+
+            hal_tasks_schedule(&cluster->ramp_task, DIMMER_RAMP_PERIOD_MS);
+        }
+        break;
+    case ZCL_CMD_LEVEL_STOP_WITH_ON_OFF:
+        /* Wall-switch release: stop ramping. */
+        cluster->move_active = 0;
+        hal_tasks_unschedule(&cluster->ramp_task);
+        break;
     default:
         return HAL_ZIGBEE_CMD_SKIPPED;
     }
@@ -197,6 +270,11 @@ void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
                                     hal_zigbee_endpoint *endpoint) {
     cluster->endpoint = endpoint->endpoint;
     dimmer_cluster_by_endpoint[endpoint->endpoint] = cluster;
+
+    cluster->ramp_task.handler = dimmer_cluster_ramp_step;
+    cluster->ramp_task.arg     = cluster;
+    hal_tasks_init(&cluster->ramp_task);
+    cluster->move_active = 0;
 
     SETUP_ATTR(0, ZCL_ATTR_ONOFF, ZCL_DATA_TYPE_BOOLEAN, ATTR_READONLY, cluster->on);
     SETUP_ATTR(1, ZCL_ATTR_START_UP_ONOFF, ZCL_DATA_TYPE_ENUM8, ATTR_WRITABLE,

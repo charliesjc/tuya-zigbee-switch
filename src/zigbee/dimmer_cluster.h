@@ -2,6 +2,7 @@
 #define _DIMMER_CLUSTER_H_
 
 #include "hal/zigbee.h"
+#include "hal/tasks.h"
 
 typedef struct {
     uint8_t              dimmer_idx;
@@ -21,6 +22,10 @@ typedef struct {
     uint8_t              max_level;
     uint8_t              switch_type;
     uint8_t              on;
+    /* Wall-switch dimming (ZCL Move/Stop): periodic ramp state. */
+    hal_task_t           ramp_task;
+    uint8_t              move_direction; /* 0 = down, 1 = up */
+    uint8_t              move_active;
 } zigbee_dimmer_cluster;
 
 void dimmer_cluster_add_to_endpoint(zigbee_dimmer_cluster *cluster,
