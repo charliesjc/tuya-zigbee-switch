@@ -145,7 +145,8 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
   memset(&frame, 0, sizeof(frame));
 
   frame.seq = g_tx_seq;
-  g_tx_seq = (uint16_t)((g_tx_seq + 0x10) & 0xFFF0);
+  /* Tuya MCU sequence: +1 each frame, wrap from 0xFFF0 back to 0x0000 */
+  g_tx_seq = (g_tx_seq >= 0xFFF0) ? 0 : (uint16_t)(g_tx_seq + 1);
   frame.cmd = TUYA_MCU_CMD_WRITE;
   frame.dpid = dpid;
   frame.dp_type = dp_type;
