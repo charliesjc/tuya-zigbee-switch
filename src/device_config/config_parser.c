@@ -10,6 +10,7 @@
 #include "zigbee/relay_cluster.h"
 #include "zigbee/poll_control_cluster.h"
 #include "zigbee/switch_cluster.h"
+#include "zigbee/time_cluster.h"
 #include "zigbee/dimmer_cluster.h"
 #include "hal/uart.h"
 #include "zigbee/tuya_dp_relay.h"
@@ -639,6 +640,12 @@ void parse_config()
 
     hal_ota_cluster_setup(&endpoints[0].clusters[endpoints[0].cluster_count]);
     endpoints[0].cluster_count++;
+
+    /* Lets the coordinator hand us a clock. The secondary MCU asks for
+       the time and misbehaves without it; we have no RTC and no way to
+       ask, so we accept a write instead. */
+    static zigbee_time_cluster time_cluster;
+    time_cluster_add_to_endpoint(&time_cluster, &endpoints[0]);
 
     // Add battery cluster for battery-powered devices
     if (battery.pin != HAL_INVALID_PIN)

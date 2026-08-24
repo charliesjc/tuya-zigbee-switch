@@ -8,6 +8,7 @@
 #include "hal/zigbee.h"
 #include "hal/zigbee_ota.h"
 #include "zigbee/tuya_secondary_mcu.h"
+#include "zigbee/time_cluster.h"
 #include "zigbee/tuya_dp_relay.h"
 #include "zigbee/dp_attr.h"
 #include "hal/uart.h"
@@ -125,9 +126,22 @@ static void tuya_secondary_mcu_on_command(uint8_t cmd, uint16_t seq,
 
     if (cmd == TUYA_MCU_SYNC_TIME)
     {
-        /* No RTC on the module. Answer with zeros so the MCU stops retrying;
-           it only uses this for its own countdown/schedule bookkeeping. */
-        uint8_t t[8] = {0};
+        /* Tuya wants eight bytes: UTC then local, both seconds since the
+           Unix epoch. We used to send zeros here, on the assumption the MCU
+           only kept time for countdowns. That was never checked, and epoch
+           1970 is the one difference that lines up with touch zones drifting
+           on zigbee2mqtt but never on the Tuya gateway, which supplies real
+           time. Zeros remain the answer only while the coordinator has not
+           told us anything -- claiming a time we do not have would be worse.
+           No timezone is applied: local equals UTC until we are given one. */
+        uint8_t  t[8] = {0};
+        uint32_t now_s = zigbee_time_unix();
+        if (now_s != 0)
+        {
+            t[0] = (uint8_t)(now_s >> 24); t[1] = (uint8_t)(now_s >> 16);
+            t[2] = (uint8_t)(now_s >> 8);  t[3] = (uint8_t)now_s;
+            t[4] = t[0]; t[5] = t[1]; t[6] = t[2]; t[7] = t[3];
+        }
         tuya_secondary_mcu_send_cmd(cmd, seq, t, sizeof(t));
         return;
     }

@@ -164,6 +164,7 @@ COMMON_SOURCES := \
 	$(SRC_DIR)/zigbee/dimmer_cluster.c \
 	$(SRC_DIR)/zigbee/general_commands.c \
 	$(SRC_DIR)/zigbee/group_cluster.c \
+	$(SRC_DIR)/zigbee/time_cluster.c \
 	$(SRC_DIR)/zigbee/tuya_dp_relay.c \
 	$(SRC_DIR)/zigbee/dp_attr.c \
 	$(SRC_DIR)/zigbee/relay_cluster.c \

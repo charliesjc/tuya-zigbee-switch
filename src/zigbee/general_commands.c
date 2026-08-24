@@ -39,6 +39,10 @@ static void zigbee_on_attr_change(uint8_t endpoint, uint16_t cluster_id,
         relay_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
         dimmer_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
     }
+    else if (cluster_id == ZCL_CLUSTER_TIME)
+    {
+        time_cluster_on_write_attr(attribute_id);
+    }
     else if (cluster_id == ZCL_CLUSTER_WINDOW_COVERING)
     {
         cover_cluster_callback_attr_write_trampoline(endpoint, attribute_id);

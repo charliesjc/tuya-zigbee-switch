@@ -42,6 +42,12 @@
 #define ZCL_ATTR_BASIC_DISABLE_LOCAL_CFG          0x0014
 #define ZCL_ATTR_BASIC_SW_BUILD_ID                0x4000
 
+/* genTime, so the coordinator can give the device a real clock. */
+#define ZCL_CLUSTER_TIME                          0x000a
+#define ZCL_ATTR_TIME_TIME                        0x0000
+#define ZCL_ATTR_TIME_STATUS                      0x0001
+#define ZCL_ATTR_TIME_LOCAL_TIME                  0x0007
+
 #define ZCL_ATTR_BASIC_DEVICE_CONFIG              0xff00
 #define ZCL_ATTR_BASIC_DP_CONFIG                  0xff11
 #define ZCL_ATTR_BASIC_STATUS_LED_STATE           0xff01

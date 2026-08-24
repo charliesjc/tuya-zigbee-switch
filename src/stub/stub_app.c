@@ -263,6 +263,9 @@ int stub_app_string_to_attribute_value(hal_zigbee_attribute *attr,
 
         break;
     }
+    /* UTCTime is a uint32 on the wire; the real stacks treat it that way
+       and without this the stub silently mangles a Time write. */
+    case ZCL_DATA_TYPE_UTC:
     case ZCL_DATA_TYPE_UINT32: {
         unsigned long v = 0;
         if (sscanf(str, "%lu", &v) != 1)
