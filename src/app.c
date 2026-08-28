@@ -8,10 +8,16 @@
 #include "hal/zigbee.h"
 #include "hal/zigbee_ota.h"
 #include "zigbee/tuya_secondary_mcu.h"
+#include "zigbee/tuya_dp_relay.h"
+#include "zigbee/dp_attr.h"
+#include "hal/uart.h"
 #include "zigbee/battery_cluster.h"
 #include "zigbee/general_commands.h"
+
+extern hal_uart_config_t mcu_uart_config;
 #ifdef END_DEVICE
 #include "zigbee/poll_control_cluster.h"
+
 #endif
 
 void process_device_type_change()
@@ -52,8 +58,20 @@ void process_device_type_change()
 // one" -> a pairing reset (not a factory reset of the user's config).
 #define TUYA_MCU_RESET_PAIR_NETWORK 0x03
 #define TUYA_MCU_RESET_PAIR_REJOIN 0x01
+/* Queries the MCU sends to the module (Tuya Zigbee UART protocol). */
+#define TUYA_MCU_QUERY_NETWORK_STATUS 0x20
+#define TUYA_MCU_SYNC_TIME            0x24
+#define TUYA_MCU_QUERY_GATEWAY_STATUS 0x25
+#define TUYA_NET_STATUS_NOT_CONNECTED 0x00
+#define TUYA_NET_STATUS_CONNECTED     0x01
+#define TUYA_GW_STATUS_OFFLINE        0x00
+#define TUYA_GW_STATUS_ONLINE         0x01
 
-static void tuya_secondary_mcu_on_command(uint8_t cmd, const uint8_t *data,
+/* Set once we have asked the MCU for a full datapoint dump. */
+static uint8_t dp_query_sent = 0;
+
+static void tuya_secondary_mcu_on_command(uint8_t cmd, uint16_t seq,
+                                          const uint8_t *data,
                                           uint16_t data_len)
 {
     if (cmd == TUYA_MCU_RESET_PAIR_NETWORK &&
@@ -62,6 +80,56 @@ static void tuya_secondary_mcu_on_command(uint8_t cmd, const uint8_t *data,
         printf("Secondary MCU requested leave+rejoin\r\n");
         hal_zigbee_leave_network();
         // app_task() will start network steering once we are no longer joined.
+        return;
+    }
+
+    /* The MCU polls the module about the network. Leaving these unanswered
+       makes it assume the link is broken, which on switch hardware shows up
+       as the key LEDs blinking. Responses must echo the request's seq. */
+    if (cmd == TUYA_MCU_QUERY_NETWORK_STATUS)
+    {
+        uint8_t status =
+            (hal_zigbee_get_network_status() == HAL_ZIGBEE_NETWORK_JOINED)
+                ? TUYA_NET_STATUS_CONNECTED
+                : TUYA_NET_STATUS_NOT_CONNECTED;
+        tuya_secondary_mcu_send_cmd(cmd, seq, &status, 1);
+
+        /* First contact from the MCU is the earliest point we know it is
+           listening, so this is where we ask it to dump every datapoint.
+           Doing it from app_init() would race the MCU's own boot. */
+        if (!dp_query_sent)
+        {
+            dp_query_sent = 1;
+            /* Apply the IT-declared datapoint values here, not from
+               app_init(). Writing the config string reboots only the
+               Telink; the MCU keeps running mid conversation and drops
+               whatever we send before it is back in sync. That is why
+               changing a setting used to need a power cycle to stick. */
+            tuya_dp_apply_inits();
+            dp_attr_query_all();
+        }
+        return;
+    }
+
+    if (cmd == TUYA_MCU_QUERY_GATEWAY_STATUS)
+    {
+        /* We are the gateway from the MCU's point of view: if we are on a
+           network, report the gateway as reachable. */
+        uint8_t status =
+            (hal_zigbee_get_network_status() == HAL_ZIGBEE_NETWORK_JOINED)
+                ? TUYA_GW_STATUS_ONLINE
+                : TUYA_GW_STATUS_OFFLINE;
+        tuya_secondary_mcu_send_cmd(cmd, seq, &status, 1);
+        return;
+    }
+
+    if (cmd == TUYA_MCU_SYNC_TIME)
+    {
+        /* No RTC on the module. Answer with zeros so the MCU stops retrying;
+           it only uses this for its own countdown/schedule bookkeeping. */
+        uint8_t t[8] = {0};
+        tuya_secondary_mcu_send_cmd(cmd, seq, t, sizeof(t));
+        return;
     }
 }
 
@@ -71,15 +139,19 @@ void app_init(void)
     parse_config(); // Does most of the setup, including all callbacks
                     // registration
 
-    // Only devices with dimmers have a secondary MCU over UART. Initialising
-    // the UART on every device would reassign PB1/PB7 as UART pins on the
-    // many Telink boards that use those pins as GPIOs, so gate it on the
-    // parsed dimmer count.
-    if (dimmer_clusters_cnt > 0)
+    // Devices with dimmers OR DP-backed relays talk to a secondary MCU over
+    // UART. Initialising it unconditionally would reassign the UART pins on
+    // the many Telink boards that use them as GPIOs, so gate it on the config.
+    if (dimmer_clusters_cnt > 0 || tuya_dp_relay_count() > 0 || dp_attrs_cnt > 0)
     {
-        tuya_secondary_mcu_init(NULL);
+        tuya_secondary_mcu_init(&mcu_uart_config);
+        tuya_dp_relay_init();
+        // Registered after tuya_dp_relay_init so it sits at the head of the
+        // report callback chain and forwards what it does not own.
+        dp_attr_init();
         tuya_secondary_mcu_register_command_callback(tuya_secondary_mcu_on_command);
     }
+
     hal_zigbee_init_ota();
     init_global_attr_write_callback();
 
@@ -94,7 +166,7 @@ void app_task()
     poll_control_cluster_update();
 #endif
 
-    if (dimmer_clusters_cnt > 0)
+    if (dimmer_clusters_cnt > 0 || tuya_dp_relay_count() > 0 || dp_attrs_cnt > 0)
     {
         tuya_secondary_mcu_poll();
     }

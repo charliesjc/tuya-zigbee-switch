@@ -6294,3 +6294,41 @@ SWITCH_ZEMISMART_TS0601_6GANG:
   info: Needs pinout. Secondary MCU. 6-gang!
   threads: https://github.com/romasku/tuya-zigbee-switch/issues/209
   store: https://www.zemismart.com/products/tb26-6
+SWITCH_NOVADIGITAL_TPZ2:
+  human_name: NovaDigital TPZ-2 / Moes SFL02-Z-2 (secondary MCU)
+  category: switch
+  power: mains
+  neutral: required
+  output: relay
+  device_type: router
+  stock_model_name: TS0601
+  stock_manufacturer_name: _TZE200_hktk6hze
+  stock_converter_manufacturer: Moes
+  stock_converter_model: SFL02-Z-2
+  override_z2m_device: null
+  tuya_module: ZTU
+  mcu_family: Telink
+  mcu: TLSR8258
+  config_str: hktk6hze;TS0601-TPZ2;Y9600;ST18;ST19;RT181E;RT191F;PT26;M;
+  # Tuya datapoints with no standard ZCL equivalent. Compiled into the second
+  # config string (attribute 0xff11) and into the z2m exposes. dp and attr are
+  # hex, matching the rest of the config string syntax.
+  dp_attributes:
+    - {dp: "12", type: E, attr: "20", name: mode_l1, label: "Switch 1 mode", values: {switch_1: 0, scene_1: 1}}
+    - {dp: "13", type: E, attr: "21", name: mode_l2, label: "Switch 2 mode", values: {switch_2: 0, scene_2: 1}}
+    - {dp: "24", type: B, attr: "22", name: backlight_mode, label: "Backlight mode"}
+    - {dp: "25", type: E, attr: "23", name: indicator_status, label: "Indicator status", values: {"off": 0, relay: 1, invert: 2}}
+    - {dp: "67", type: B, attr: "24", name: induction_mode, label: "Induction mode"}
+    - {dp: "68", type: E, attr: "25", name: vibration_mode, label: "Vibration", values: {"Gear 0": 0, "Gear 1": 1, "Gear 2": 2, "Gear 3": 3}}
+    - {dp: "69", type: V, attr: "26", name: momentary_1, label: "Momentary switch timer 1", unit: s, min: 0, max: 3600}
+    - {dp: "6A", type: V, attr: "27", name: momentary_2, label: "Momentary switch timer 2", unit: s, min: 0, max: 3600}
+  alt_config_str: null
+  old_manufacturer_names: null
+  old_zb_models: null
+  stock_manufacturer_id: 4417
+  stock_image_type: 54179
+  firmware_image_type: 43500
+  build: yes
+  status: mostly_supported
+  info: "Relays behind Tuya secondary MCU over UART B1/B7 @9600. DP 0x18/0x19 = state_l1/state_l2."
+  threads: https://github.com/romasku/tuya-zigbee-switch/issues/369

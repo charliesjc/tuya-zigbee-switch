@@ -212,3 +212,45 @@ hal_uart_status_t hal_uart_read_byte(uint8_t *byte)
   }
   return hal_uart_read(byte, 1, &read_len);
 }
+
+/* ---- test hooks -------------------------------------------------------- */
+/* The Tuya secondary MCU bridge had no runtime coverage at all: everything was
+ * asserted against the source text. These let a test drive both directions. */
+
+void stub_uart_inject_rx(const uint8_t *data, uint16_t len)
+{
+  if (!data || !g_hal_uart_stub.initialized)
+  {
+    return;
+  }
+  for (uint16_t i = 0; i < len; i++)
+  {
+    if (ring_room(&g_hal_uart_stub, g_hal_uart_stub.rx_head,
+                  g_hal_uart_stub.rx_tail) == 0)
+    {
+      break;
+    }
+    ring_push_byte(g_hal_uart_stub.rx_buf, &g_hal_uart_stub.rx_head,
+                   &g_hal_uart_stub.rx_tail, HAL_UART_STUB_RX_DEPTH, data[i]);
+  }
+}
+
+uint16_t stub_uart_take_tx(uint8_t *out, uint16_t max)
+{
+  uint16_t actual = 0;
+
+  if (!out || !g_hal_uart_stub.initialized)
+  {
+    return 0;
+  }
+  while (actual < max &&
+         ring_used(&g_hal_uart_stub, g_hal_uart_stub.tx_head,
+                   g_hal_uart_stub.tx_tail) > 0)
+  {
+    out[actual++] = ring_pop_byte(g_hal_uart_stub.tx_buf,
+                                  &g_hal_uart_stub.tx_head,
+                                  &g_hal_uart_stub.tx_tail,
+                                  HAL_UART_STUB_TX_DEPTH);
+  }
+  return actual;
+}

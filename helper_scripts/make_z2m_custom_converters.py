@@ -35,6 +35,16 @@ if __name__ == "__main__":
         if not device.get("build", True):
             continue
 
+        # YAML 1.1 turns bare off/on/yes/no into booleans, so an enum label
+        # like "off" silently becomes False and reaches z2m as "False".
+        for dp in device.get("dp_attributes") or []:
+            for key in dp.get("values") or {}:
+                if not isinstance(key, str):
+                    raise SystemExit(
+                        f"{dp['name']}: enum label {key!r} is not a string. "
+                        "Quote it in device_db.yaml."
+                    )
+
         config = device["config_str"]
         zb_manufacturer, zb_model, *peripherals = config.rstrip(";").split(";")
 
@@ -44,6 +54,7 @@ if __name__ == "__main__":
         cover_switch_cnt = 0
         cover_cnt = 0
         indicators_cnt = 0
+        dp_relay_cnt = 0
         has_dedicated_net_led = False
         has_battery_cluster = False
         for peripheral in peripherals:
@@ -51,6 +62,8 @@ if __name__ == "__main__":
                 continue
             if peripheral[0] == "R":
                 relay_cnt += 1
+            if peripheral[:2] == "RT":
+                dp_relay_cnt += 1
             if peripheral[0] == "S":
                 switch_cnt += 1
             if peripheral[:2] == "DM":
@@ -59,7 +72,7 @@ if __name__ == "__main__":
                 cover_switch_cnt += 1
             if peripheral[0] == "C":
                 cover_cnt += 1
-            if peripheral[0] == "I":
+            if peripheral[0] == "I" and peripheral[:2] != "IT":
                 indicators_cnt += 1
             if peripheral[0] == "L":
                 has_dedicated_net_led = True
@@ -125,6 +138,10 @@ if __name__ == "__main__":
                 "switchNames": switch_names,
                 "relayNames": relay_names,
                 "relayIndicatorNames": relay_names[:indicators_cnt],
+                "dp_relay_cnt": dp_relay_cnt,
+                # Datapoint metadata drives both the compiled dp config
+                # string and the exposes below. Single source of truth.
+                "dp_attributes": device.get("dp_attributes") or [],
                 "coverSwitchNames": cover_switch_names,
                 "coverNames": cover_names,
                 "dimmerNames": dimmer_names,

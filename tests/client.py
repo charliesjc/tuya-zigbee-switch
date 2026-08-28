@@ -29,10 +29,13 @@ class StubProc:
         joined: bool = True,
         freeze_time: bool = True,
         device_config: str | None = None,
+        dp_config: str | None = None,
     ) -> None:
         self.cmd = [*cmd]
         if device_config:
             self.cmd += ["--device-config", device_config]
+        if dp_config:
+            self.cmd += ["--dp-config", dp_config]
         if not joined:
             self.cmd += ["--not-joined"]
         if freeze_time:

@@ -12,9 +12,16 @@ typedef struct {
 
 extern device_config_str_t device_config_str;
 
+/* Second config string, holding the Tuya datapoint to ZCL attribute map.
+ * Split from the main one because a single ZCL write caps at ~74 chars. */
+extern device_config_str_t dp_config_str;
+
 void device_config_write_to_nv();
 void device_config_remove_from_nv();
 void device_config_read_from_nv();
+
+void dp_config_write_to_nv();
+void dp_config_read_from_nv();
 
 void handle_version_changes();
 
