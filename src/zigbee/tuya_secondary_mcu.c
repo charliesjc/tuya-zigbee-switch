@@ -1,15 +1,54 @@
 #include "zigbee/tuya_secondary_mcu.h"
 #include "hal/uart.h"
+#include "hal/printf_selector.h"
 
 #include <stdbool.h>
 #include <string.h>
 
 static bool g_tuya_secondary_mcu_enabled = false;
 
+/* A write the peripheral will not accept means the link is wedged: the
+   pinmux was reassigned under us, the clock moved, an earlier re-init left
+   it odd. Silence is NOT evidence of that -- an event driven MCU is quiet
+   by design, and a timer based watchdog would churn the UART for nothing.
+   Repeated write failures are, so that is the trigger. */
+#define UART_FAILURES_BEFORE_REINIT    3
+
+static hal_uart_config_t g_uart_config = {0};
+static uint8_t           uart_write_failures = 0;
+
+static void tuya_uart_note_write(int ok)
+{
+  if (ok)
+  {
+    uart_write_failures = 0;
+    return;
+  }
+  if (++uart_write_failures < UART_FAILURES_BEFORE_REINIT) { return; }
+  printf("Secondary MCU link stuck, reinitialising UART\r\n");
+  uart_write_failures = 0;
+  hal_uart_deinit();
+  hal_uart_init(&g_uart_config);
+}
+
 // Outgoing sequence number, cycling 0..0xfff0 per the Tuya protocol. The
 // original firmware hardcoded 0x0100 for module->MCU frames, but the protocol
 // expects a proper incrementing sequence on both directions.
 static uint16_t g_tx_seq = 0;
+/* Set while a 0x05 report is being dispatched, see the header. */
+static uint8_t g_report_is_passive = 0;
+
+uint16_t tuya_secondary_mcu_next_tx_seq(void)
+{
+  uint16_t seq = g_tx_seq;
+  g_tx_seq = (g_tx_seq >= 0xFFF0) ? 0 : (uint16_t)(g_tx_seq + 1);
+  return seq;
+}
+
+uint8_t tuya_secondary_mcu_report_is_passive(void)
+{
+  return g_report_is_passive;
+}
 
 static uint8_t tuya_checksum(const uint8_t *buf, uint16_t len)
 {
@@ -191,6 +230,7 @@ void tuya_secondary_mcu_disable(void)
 
 int tuya_secondary_mcu_init(const hal_uart_config_t *cfg)
 {
+  if (cfg != NULL) { g_uart_config = *cfg; }
   hal_uart_init(cfg);
   tuya_secondary_mcu_enable();
   return 0;
@@ -221,7 +261,9 @@ int tuya_secondary_mcu_send_cmd(uint8_t cmd, uint16_t seq,
   uint8_t chk = tuya_checksum(buf, idx);
   buf[idx++] = chk;
 
-  return hal_uart_write(buf, idx, NULL) == HAL_UART_OK ? 0 : -1;
+  int ok = (hal_uart_write(buf, idx, NULL) == HAL_UART_OK);
+  tuya_uart_note_write(ok);
+  return ok ? 0 : -1;
 }
 
 int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
@@ -240,7 +282,9 @@ int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
   {
     return status;
   }
-  return hal_uart_write(buffer, written, NULL) == HAL_UART_OK ? 0 : -1;
+  int ok = (hal_uart_write(buffer, written, NULL) == HAL_UART_OK);
+  tuya_uart_note_write(ok);
+  return ok ? 0 : -1;
 }
 
 static tuya_secondary_mcu_dp_report_callback_t g_dp_report_callback = NULL;
@@ -317,12 +361,15 @@ static void tuya_secondary_mcu_process_assembly(void)
       if (frame.cmd == TUYA_MCU_CMD_REPORT ||
           frame.cmd == TUYA_MCU_CMD_REPORT_PASSIVE)
       {
+        g_report_is_passive =
+            (frame.cmd == TUYA_MCU_CMD_REPORT_PASSIVE) ? 1 : 0;
         // DP state report (button press, write ack), e.g. physical button.
         if (g_dp_report_callback != NULL)
         {
           g_dp_report_callback(frame.dpid, frame.dp_type, frame.value,
                                frame.value_len);
         }
+        g_report_is_passive = 0;
       }
       else
       {

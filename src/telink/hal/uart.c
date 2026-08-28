@@ -136,6 +136,27 @@ void hal_uart_flush(void) {
     uart_ndma_clear_tx_index();
 }
 
+/* The watchdog fires at one second. An unbounded spin here turns any
+   stalled UART -- wrong pinmux, bad clock, a peripheral left in a odd
+   state by a re-init -- into a reboot, and every relay command and
+   datapoint write passes through this path. Give up instead: a dropped
+   frame is recoverable, a reset is not.
+
+   The limit is a spin count rather than a timer because this runs with
+   interrupts free and must stay cheap; it is sized far above the ~1 ms a
+   byte needs at 9600 baud and far below the watchdog window. */
+#define UART_TX_SPIN_LIMIT    2000000u
+
+static uint8_t uart_tx_wait_idle(void) {
+    uint32_t spins = 0;
+    while (uart_tx_is_busy()) {
+        if (++spins > UART_TX_SPIN_LIMIT) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 hal_uart_status_t hal_uart_write(const uint8_t *data, uint16_t len,
                                  uint16_t *written) {
     if (!data && len != 0) {
@@ -146,14 +167,18 @@ hal_uart_status_t hal_uart_write(const uint8_t *data, uint16_t len,
     for (uint16_t i = 0; i < len; i++) {
         // Wait for the previous byte to finish shifting out before writing the
         // next one. NDMA mode cycles through the four TX data registers.
-        while (uart_tx_is_busy()) {
+        if (!uart_tx_wait_idle()) {
+            if (written) { *written = actual; }
+            return HAL_UART_ERR_IO;
         }
         uart_ndma_send_byte(data[i]);
         actual++;
     }
     // Wait for the final byte to be fully transmitted before returning, so a
     // subsequent read/command isn't corrupted by an in-flight frame.
-    while (uart_tx_is_busy()) {
+    if (!uart_tx_wait_idle()) {
+        if (written) { *written = actual; }
+        return HAL_UART_ERR_IO;
     }
 
     if (written) {

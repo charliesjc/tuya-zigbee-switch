@@ -83,7 +83,12 @@ static void tuya_dp_relay_on_report(uint8_t dpid, uint8_t dp_type,
        only visible as a datapoint state change. Feed it to the switch
        machinery so actions, modes and outgoing binds all work - unless it is
        the echo of a write we just made. */
-    if (!dp_echo_consume(dpid))
+    /* A passive report (0x05) is the MCU answering something we sent, and a
+       bulk dump is the answer to our own query. Neither is a fresh touch:
+       synthesising one fires switch actions, drives binds, and feeds the
+       multi-press factory reset. */
+    if (!tuya_secondary_mcu_report_is_passive() &&
+        !dp_attr_bulk_dump_active() && !dp_echo_consume(dpid))
     {
         for (uint8_t i = 0; i < buttons_cnt; i++)
         {

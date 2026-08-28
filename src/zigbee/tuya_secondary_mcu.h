@@ -83,6 +83,15 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
 /**
  * Send an arbitrary command frame. Responses must echo the request's seq.
  */
+/** Next sequence number for a module-initiated frame. Responses must echo
+ *  the request seq instead; only use this for frames we start. */
+uint16_t tuya_secondary_mcu_next_tx_seq(void);
+
+/** True while dispatching a passive report (0x05), which is the MCU
+ *  answering something we sent. A passive report is never a fresh key
+ *  press, so consumers must not treat it as one. */
+uint8_t tuya_secondary_mcu_report_is_passive(void);
+
 int tuya_secondary_mcu_send_cmd(uint8_t cmd, uint16_t seq,
                                 const uint8_t *payload, uint16_t len);
 

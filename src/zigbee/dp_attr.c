@@ -2,6 +2,7 @@
 #include "consts.h"
 #include "device_config/config_parser.h"
 #include "hal/printf_selector.h"
+#include "hal/timer.h"
 #include "tuya_secondary_mcu.h"
 #include <string.h>
 
@@ -10,13 +11,31 @@
  * one the same request is 0x08, which here is the RF test command instead. */
 #define TUYA_MCU_QUERY_ALL_DP    0x28
 
-/* The stock firmware hardcodes this sequence number on module -> MCU frames. */
-#define TUYA_MCU_MODULE_SEQ      0x0100
-
 dp_attr_t dp_attrs[MAX_DP_ATTRS];
 uint8_t   dp_attrs_cnt = 0;
 
 static tuya_secondary_mcu_dp_report_callback_t g_next_callback = NULL;
+
+/* Window during which reports are assumed to be the answer to our own
+   query-all rather than someone touching the switch. */
+#define BULK_DUMP_WINDOW_MS    3000
+static uint8_t  g_bulk_dump_armed      = 0;
+static uint32_t g_bulk_dump_started_ms = 0;
+
+uint8_t dp_attr_bulk_dump_active(void)
+{
+  if (!g_bulk_dump_armed)
+  {
+    return 0;
+  }
+  /* Unsigned subtraction, so this stays correct across a millis wrap. */
+  if ((hal_millis() - g_bulk_dump_started_ms) >= BULK_DUMP_WINDOW_MS)
+  {
+    g_bulk_dump_armed = 0;
+    return 0;
+  }
+  return 1;
+}
 
 static int8_t hex_digit(char c) {
     if (c >= '0' && c <= '9') {
@@ -205,6 +224,8 @@ void dp_attr_query_all(void) {
     if (dp_attrs_cnt == 0) {
         return;
     }
-    tuya_secondary_mcu_send_cmd(TUYA_MCU_QUERY_ALL_DP, TUYA_MCU_MODULE_SEQ, NULL,
-                                0);
+    g_bulk_dump_armed      = 1;
+    g_bulk_dump_started_ms = hal_millis();
+    tuya_secondary_mcu_send_cmd(TUYA_MCU_QUERY_ALL_DP,
+                                tuya_secondary_mcu_next_tx_seq(), NULL, 0);
 }

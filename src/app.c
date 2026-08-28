@@ -60,6 +60,7 @@ void process_device_type_change()
 #define TUYA_MCU_RESET_PAIR_NETWORK 0x03
 #define TUYA_MCU_RESET_PAIR_REJOIN 0x01
 /* Queries the MCU sends to the module (Tuya Zigbee UART protocol). */
+#define TUYA_MCU_REPORT_NETWORK_STATUS 0x02
 #define TUYA_MCU_QUERY_NETWORK_STATUS 0x20
 #define TUYA_MCU_SYNC_TIME            0x24
 #define TUYA_MCU_QUERY_GATEWAY_STATUS 0x25
@@ -78,9 +79,24 @@ static void tuya_secondary_mcu_on_command(uint8_t cmd, uint16_t seq,
     if (cmd == TUYA_MCU_RESET_PAIR_NETWORK &&
         data_len == 1 && data[0] == TUYA_MCU_RESET_PAIR_REJOIN)
     {
-        printf("Secondary MCU requested leave+rejoin\r\n");
-        hal_zigbee_leave_network();
-        // app_task() will start network steering once we are no longer joined.
+        /* Holding a key makes the MCU ask us to leave and re-pair. An
+           accidental long press is the single most common way a switch
+           drops off a production network, so we refuse: a working network
+           is never abandoned on a physical gesture. Tell the MCU we are
+           connected instead, which is what stops its pairing blink. */
+        if (hal_zigbee_get_network_status() == HAL_ZIGBEE_NETWORK_JOINED)
+        {
+            uint8_t status = TUYA_NET_STATUS_CONNECTED;
+            printf("Ignoring MCU leave request: already joined\r\n");
+            tuya_secondary_mcu_send_cmd(TUYA_MCU_REPORT_NETWORK_STATUS,
+                                        tuya_secondary_mcu_next_tx_seq(),
+                                        &status, 1);
+            return;
+        }
+        /* Already off the network: nothing to lose, so make the gesture
+           useful and kick off a fresh join attempt. */
+        printf("MCU leave request while unjoined: restarting steering\r\n");
+        hal_zigbee_start_network_steering();
         return;
     }
 

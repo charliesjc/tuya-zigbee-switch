@@ -58,6 +58,11 @@ void    dp_attr_init(void);
  *  Called from the Basic cluster write callback. Returns 1 if handled. */
 uint8_t dp_attr_on_write(uint16_t attr_id);
 
+/** True for a short window after a query-all. The MCU answers it by
+ *  dumping every datapoint, including the ones that carry key state, so
+ *  consumers must not mistake that burst for physical presses. */
+uint8_t dp_attr_bulk_dump_active(void);
+
 /** Ask the MCU to report every datapoint it knows about. */
 void    dp_attr_query_all(void);
 
