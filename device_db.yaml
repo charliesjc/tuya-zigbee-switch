@@ -6294,6 +6294,42 @@ SWITCH_ZEMISMART_TS0601_6GANG:
   info: Needs pinout. Secondary MCU. 6-gang!
   threads: https://github.com/romasku/tuya-zigbee-switch/issues/209
   store: https://www.zemismart.com/products/tb26-6
+SWITCH_NOVADIGITAL_SALA_6G:
+  human_name: NovaDigital 6 gang TS0601 (secondary MCU)
+  category: switch
+  power: mains
+  neutral: required
+  output: relay
+  device_type: router
+  stock_model_name: TS0601
+  stock_manufacturer_name: _TZE204_tdhnhhiy
+  stock_converter_manufacturer: Tuya
+  stock_converter_model: TS0601_switch_8
+  override_z2m_device: null
+  tuya_module: ZTU
+  mcu_family: Telink
+  mcu: TLSR8258
+  # Six relays over the MCU, no ST tokens: that keeps it to six endpoints,
+  # under the SDK cap of eight, and keeps the string writable over the air
+  # (68 chars vs 92 with the keys declared). Touch still works -- the MCU
+  # actuates locally and reports -- what is given up is switch action modes
+  # and outgoing binds from the keys.
+  config_str: tdhnhhiy;TS0601-6G;WB1B7;Y9600;RT01;RT02;RT03;RT04;RT05;RT06;PT0E;M;
+  dp_attributes: null
+  alt_config_str: null
+  old_manufacturer_names: null
+  old_zb_models: null
+  stock_manufacturer_id: 4417
+  stock_image_type: 54179
+  firmware_image_type: 43501
+  build: yes
+  status: experimental
+  info: "DP 1-6 = state_l1..l6, DP 14 = power on behaviour, taken from the
+    owner's own z2m converter and confirmed working there. UART pins and baud
+    are NOT confirmed: B1/B7 @9600 is carried over from the TPZ-2 on the same
+    ZTU module and is a starting guess. stock_image_type is likewise the
+    TPZ-2's value, unverified for this board."
+
 SWITCH_NOVADIGITAL_TPZ2:
   human_name: NovaDigital TPZ-2 / Moes SFL02-Z-2 (secondary MCU)
   category: switch

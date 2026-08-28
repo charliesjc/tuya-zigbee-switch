@@ -1,4 +1,5 @@
 #include "hal/gpio.h"
+#include "nvm_items.h"
 #include "hal/printf_selector.h"
 #include "hal/zigbee.h"
 #include "zigbee/basic_cluster.h"
@@ -70,7 +71,7 @@ zigbee_group_cluster group_cluster = {};
 zigbee_switch_cluster switch_clusters[4];
 uint8_t switch_clusters_cnt = 0;
 
-zigbee_relay_cluster relay_clusters[4];
+zigbee_relay_cluster relay_clusters[6];
 uint8_t relay_clusters_cnt = 0;
 
 zigbee_dimmer_cluster dimmer_clusters[4];
@@ -351,6 +352,11 @@ void parse_config()
             uint8_t dpid = 0;
             if (parse_hex_byte(entry + 2, &dpid) && dpid != 0)
             {
+                if (relay_clusters_cnt >= MAX_RELAYS || relays_cnt >= MAX_RELAYS)
+                {
+                    printf("Too many relays, ignoring %s\r\n", entry);
+                    continue;
+                }
                 relays[relays_cnt].pin = HAL_INVALID_PIN;
                 relays[relays_cnt].off_pin = HAL_INVALID_PIN;
                 relays[relays_cnt].on_high = 1;
@@ -391,6 +397,11 @@ void parse_config()
         }
         else if (entry[0] == 'R' && entry[1] >= 'A' && entry[1] <= 'D')
         {
+            if (relay_clusters_cnt >= MAX_RELAYS || relays_cnt >= MAX_RELAYS)
+            {
+                printf("Too many relays, ignoring %s\r\n", entry);
+                continue;
+            }
             hal_gpio_pin_t pin = hal_gpio_parse_pin(entry + 1);
             hal_gpio_init(pin, 0, HAL_GPIO_PULL_NONE);
 

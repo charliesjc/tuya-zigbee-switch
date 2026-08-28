@@ -3,6 +3,7 @@
 #include "base_components/relay.h"
 #include "base_components/button.h"
 #include "zigbee/tuya_secondary_mcu.h"
+#include "zigbee/dp_attr.h"
 #include "hal/timer.h"
 
 #include <stddef.h>

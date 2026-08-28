@@ -16514,6 +16514,64 @@ const definitions = [
     },
     {
         zigbeeModel: [
+            "TS0601-6G",
+        ],
+        model: "TS0601_switch_8",
+        vendor: "Tuya-custom",
+        description: "Custom switch (https://github.com/romasku/tuya-zigbee-switch)",
+        extend: [
+            deviceEndpoints({ endpoints: {"relay_0": 1, "relay_1": 2, "relay_2": 3, "relay_3": 4, "relay_4": 5, "relay_5": 6, } }),
+            romasku.deviceConfig("device_config", "relay_0"),
+            romasku.dpConfig("dp_config", "relay_0"),
+            romasku.multiPressResetCount("multi_press_reset_count", "relay_0"),
+            onOff({ endpointNames: ["relay_0", "relay_1", "relay_2", "relay_3", "relay_4", "relay_5"] }),
+        ],
+        meta: { multiEndpoint: true },
+        configure: async (device, coordinatorEndpoint, logger) => {
+            const endpoint1 = device.getEndpoint(1);
+            await reporting.onOff(endpoint1, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            const endpoint2 = device.getEndpoint(2);
+            await reporting.onOff(endpoint2, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            const endpoint3 = device.getEndpoint(3);
+            await reporting.onOff(endpoint3, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            const endpoint4 = device.getEndpoint(4);
+            await reporting.onOff(endpoint4, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            const endpoint5 = device.getEndpoint(5);
+            await reporting.onOff(endpoint5, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+            const endpoint6 = device.getEndpoint(6);
+            await reporting.onOff(endpoint6, {
+                min: 0,
+                max: constants.repInterval.MAX,
+                change: 1,
+            });
+
+
+
+        },
+        ota: true,
+    },
+    {
+        zigbeeModel: [
             "TS0601-TPZ2",
         ],
         model: "SFL02-Z-2",

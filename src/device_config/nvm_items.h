@@ -1,7 +1,7 @@
 #ifndef DEVICE_CONFIG_NVM_ITEMS_H_
 #define DEVICE_CONFIG_NVM_ITEMS_H_
 
-#define MAX_RELAYS                       5
+#define MAX_RELAYS                       6
 #define MAX_SWITCHES                     5
 #define MAX_COVER_SWITCHES               3
 #define MAX_COVERS                       3
