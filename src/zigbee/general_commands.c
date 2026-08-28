@@ -7,6 +7,7 @@
 #include "poll_control_cluster.h"
 #include "relay_cluster.h"
 #include "switch_cluster.h"
+#include "time_cluster.h"
 
 static void zigbee_on_attr_change(uint8_t endpoint, uint16_t cluster_id,
                                   uint16_t attribute_id)
