@@ -207,6 +207,21 @@ const romasku = {
                 }
             },
         }),
+    deviceConfigExt: (name, endpointName) =>
+        text({
+            name,
+            endpointName,
+            access: "ALL",
+            cluster: "genBasic",
+            attribute:  { ID: 0xff16, type: 0x44 }, // long str
+            description: "Overflow for device_config: a single ZCL write caps at ~74 characters, so a config string longer than that has to be split, with the remainder written here. Appended onto device_config in RAM before it is parsed, so the result is identical to one long string -- only the over-the-air write needs to happen in two parts.",
+            zigbeeCommandOptions: {timeout: 30_000},
+            validate: (value) => {
+                assertString(value);
+                if (value.length > 256) throw new Error("Length of device_config_ext is greater than 256");
+                if (value.length && !value.endsWith(";")) throw new Error("Should end with ;");
+            },
+        }),
     deviceConfig: (name, endpointName) =>
         text({
             name,
@@ -524,6 +539,7 @@ const definitions = [
             } }),
             {% set first_endpoint = device.switchNames[0] if device.switchNames else (device.relayNames[0] if device.relayNames else (device.coverSwitchNames[0] if device.coverSwitchNames else (device.coverNames[0] if device.coverNames else device.dimmerNames[0]))) %}
             romasku.deviceConfig("device_config", "{{first_endpoint}}"),
+            romasku.deviceConfigExt("device_config_ext", "{{first_endpoint}}"),
 {% if device.dp_relay_cnt > 0 %}            romasku.dpConfig("dp_config", "{{first_endpoint}}"),
 {% endif %}
 {% for dp in device.dp_attributes %}

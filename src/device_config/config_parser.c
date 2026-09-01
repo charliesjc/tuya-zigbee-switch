@@ -121,6 +121,12 @@ void parse_config()
        string at ~74 characters and the pin config already fills it. */
     dp_config_read_from_nv();
     dp_attr_parse((const char *)dp_config_str.data, dp_config_str.size);
+    /* device_config itself can also run past a single ~74-char write, e.g. a
+       board declaring six switch AND six relay endpoints. The overflow
+       tokens are appended here, in RAM, before any tokenizing below --
+       parse_config sees one string either way. */
+    device_config_ext_read_from_nv();
+    device_config_append_ext();
     char *cursor = (char *)device_config_str.data;
 
     const char *zb_manufacturer = extract_next_entry(&cursor);

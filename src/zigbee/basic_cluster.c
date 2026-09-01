@@ -51,6 +51,12 @@ void basic_cluster_callback_attr_write_trampoline(uint16_t attribute_id) {
         dp_config_write_to_nv();
         schedule_reboot(0);
     }
+    if (attribute_id == ZCL_ATTR_BASIC_DEVICE_CONFIG_EXT) {
+        device_config_ext_str.data[device_config_ext_str.size] =
+            0; // NULL terminate the string
+        device_config_ext_write_to_nv();
+        schedule_reboot(0);
+    }
     dp_attr_on_write(attribute_id);
 }
 
@@ -102,6 +108,9 @@ void basic_cluster_add_to_endpoint(zigbee_basic_cluster *cluster,
     }
     SETUP_ATTR(attr_idx, ZCL_ATTR_BASIC_DP_CONFIG, ZCL_DATA_TYPE_LONG_CHAR_STR,
                ATTR_WRITABLE, dp_config_str);
+    attr_idx++;
+    SETUP_ATTR(attr_idx, ZCL_ATTR_BASIC_DEVICE_CONFIG_EXT, ZCL_DATA_TYPE_LONG_CHAR_STR,
+               ATTR_WRITABLE, device_config_ext_str);
     attr_idx++;
     attr_idx += dp_attr_register(cluster->attr_infos, attr_idx);
 

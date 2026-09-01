@@ -50,6 +50,7 @@
 
 #define ZCL_ATTR_BASIC_DEVICE_CONFIG              0xff00
 #define ZCL_ATTR_BASIC_DP_CONFIG                  0xff11
+#define ZCL_ATTR_BASIC_DEVICE_CONFIG_EXT          0xff16
 #define ZCL_ATTR_BASIC_STATUS_LED_STATE           0xff01
 #define ZCL_ATTR_BASIC_MULTI_PRESS_RESET_COUNT    0xff02
 

@@ -8,7 +8,8 @@
 
 /* lifecycle */
 void stub_app_init(const char *device_conf_or_null,
-                   const char *dp_conf_or_null, bool joined);
+                   const char *dp_conf_or_null,
+                   const char *device_conf_ext_or_null, bool joined);
 void stub_app_shutdown(void);
 
 /* polling (1ms cadence via REPL) */

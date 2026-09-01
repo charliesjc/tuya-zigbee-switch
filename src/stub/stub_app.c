@@ -36,7 +36,7 @@ static device_config_str_t g_stub_config = {
 };
 
 void stub_app_init(const char *device_conf, const char *dp_conf,
-                   bool joined) {
+                   const char *device_conf_ext, bool joined) {
     puts("[STUB] Starting Smart Home Device Stub");
 
     bool nvm_has_config = false;
@@ -64,6 +64,15 @@ void stub_app_init(const char *device_conf, const char *dp_conf,
         printf("[STUB] Using dp configuration: %s\n", dp.data);
         hal_nvm_write(NV_ITEM_DP_CONFIG, sizeof(device_config_str_t),
                       (uint8_t *)&dp);
+    }
+
+    if (device_conf_ext) {
+        device_config_str_t ext = {0};
+        snprintf((char *)ext.data, sizeof(ext.data), "%s", device_conf_ext);
+        ext.size = (uint16_t)strnlen((const char *)ext.data, sizeof(ext.data));
+        printf("[STUB] Using device configuration ext: %s\n", ext.data);
+        hal_nvm_write(NV_ITEM_DEVICE_CONFIG_EXT, sizeof(device_config_str_t),
+                      (uint8_t *)&ext);
     }
 
     puts("[STUB] Initializing stub application");
