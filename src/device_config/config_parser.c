@@ -1,4 +1,5 @@
 #include "hal/gpio.h"
+#include "nvm_items.h"
 #include "hal/printf_selector.h"
 #include "hal/zigbee.h"
 #include "zigbee/basic_cluster.h"
@@ -10,7 +11,11 @@
 #include "zigbee/relay_cluster.h"
 #include "zigbee/poll_control_cluster.h"
 #include "zigbee/switch_cluster.h"
+#include "zigbee/time_cluster.h"
 #include "zigbee/dimmer_cluster.h"
+#include "hal/uart.h"
+#include "zigbee/tuya_dp_relay.h"
+#include "zigbee/dp_attr.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -47,6 +52,13 @@ uint8_t leds_cnt = 0;
 button_t buttons[11];
 uint8_t buttons_cnt = 0;
 
+hal_uart_config_t mcu_uart_config = {0};
+uint8_t g_power_on_dp_id = 0;
+
+/* DPs written to the secondary MCU at startup (IT tokens). */
+dp_init_entry_t dp_inits[12];
+uint8_t dp_init_cnt = 0;
+
 relay_t relays[10]; // 4 relay endpoints + 3 cover endpoints
 uint8_t relays_cnt = 0;
 
@@ -59,7 +71,7 @@ zigbee_group_cluster group_cluster = {};
 zigbee_switch_cluster switch_clusters[4];
 uint8_t switch_clusters_cnt = 0;
 
-zigbee_relay_cluster relay_clusters[4];
+zigbee_relay_cluster relay_clusters[6];
 uint8_t relay_clusters_cnt = 0;
 
 zigbee_dimmer_cluster dimmer_clusters[4];
@@ -71,7 +83,7 @@ uint8_t cover_switch_clusters_cnt = 0;
 zigbee_cover_cluster cover_clusters[3];
 uint8_t cover_clusters_cnt = 0;
 
-hal_zigbee_cluster clusters[32];
+hal_zigbee_cluster clusters[64];
 hal_zigbee_endpoint endpoints[10];
 
 uint8_t allow_simultaneous_latching_pulses = 0;
@@ -105,6 +117,16 @@ void on_multi_press_reset(void *_, uint8_t press_count)
 void parse_config()
 {
     device_config_read_from_nv();
+    /* Datapoint map lives in its own string: the ZCL write path caps a single
+       string at ~74 characters and the pin config already fills it. */
+    dp_config_read_from_nv();
+    dp_attr_parse((const char *)dp_config_str.data, dp_config_str.size);
+    /* device_config itself can also run past a single ~74-char write, e.g. a
+       board declaring six switch AND six relay endpoints. The overflow
+       tokens are appended here, in RAM, before any tokenizing below --
+       parse_config sees one string either way. */
+    device_config_ext_read_from_nv();
+    device_config_append_ext();
     char *cursor = (char *)device_config_str.data;
 
     const char *zb_manufacturer = extract_next_entry(&cursor);
@@ -191,7 +213,7 @@ void parse_config()
             has_dedicated_status_led = true;
             leds_cnt++;
         }
-        else if (entry[0] == 'I')
+        else if (entry[0] == 'I' && entry[1] >= 'A' && entry[1] <= 'D')
         {
             hal_gpio_pin_t pin = hal_gpio_parse_pin(entry + 1);
             hal_gpio_init(pin, 0, HAL_GPIO_PULL_NONE);
@@ -230,7 +252,7 @@ void parse_config()
             }
             leds_cnt++;
         }
-        else if (entry[0] == 'S')
+        else if (entry[0] == 'S' && entry[1] >= 'A' && entry[1] <= 'D')
         {
             hal_gpio_pin_t pin = hal_gpio_parse_pin(entry + 1);
             hal_gpio_pull_t pull = hal_gpio_parse_pull(entry + 3);
@@ -259,8 +281,133 @@ void parse_config()
             buttons_cnt++;
             switch_clusters_cnt++;
         }
-        else if (entry[0] == 'R')
+        else if (entry[0] == 'S' && entry[1] == 'T')
         {
+            // ST<hh> - touch/scene event arriving as a Tuya datapoint report.
+            // Creates a normal switch endpoint, so binds/detached/action modes
+            // all work exactly as they do for a GPIO button.
+            uint8_t dpid = 0;
+            if (parse_hex_byte(entry + 2, &dpid) && dpid != 0)
+            {
+                buttons[buttons_cnt].pin = HAL_INVALID_PIN;
+                buttons[buttons_cnt].dp_id = dpid;
+                buttons[buttons_cnt].long_press_duration_ms = 800;
+                buttons[buttons_cnt].multi_press_duration_ms = 800;
+                buttons[buttons_cnt].on_multi_press = on_multi_press_reset;
+
+                switch_clusters[switch_clusters_cnt].switch_idx = switch_clusters_cnt;
+                switch_clusters[switch_clusters_cnt].mode =
+                    ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY;
+                switch_clusters[switch_clusters_cnt].action =
+                    ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE;
+                switch_clusters[switch_clusters_cnt].relay_mode =
+                    ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED;
+                switch_clusters[switch_clusters_cnt].binded_mode =
+                    ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT;
+                switch_clusters[switch_clusters_cnt].relay_index = switch_clusters_cnt + 1;
+                switch_clusters[switch_clusters_cnt].button = &buttons[buttons_cnt];
+                switch_clusters[switch_clusters_cnt].level_move_rate = 50;
+                buttons_cnt++;
+                switch_clusters_cnt++;
+            }
+        }
+        else if (entry[0] == 'I' && entry[1] == 'T')
+        {
+            // IT<hh><t><v..> - write a datapoint to the secondary MCU at boot.
+            // t: 1=bool 4=enum (1 byte value), 2=value (4 bytes, big-endian).
+            uint8_t dpid = 0;
+            if (parse_hex_byte(entry + 2, &dpid) && dpid != 0 &&
+                dp_init_cnt < (uint8_t)(sizeof(dp_inits) / sizeof(dp_inits[0])))
+            {
+                char t = entry[4];
+                uint8_t ok = 0;
+                dp_inits[dp_init_cnt].dpid = dpid;
+                if (t == '1' || t == '4')
+                {
+                    uint8_t v = 0;
+                    if (parse_hex_byte(entry + 5, &v))
+                    {
+                        dp_inits[dp_init_cnt].dp_type = (t == '1') ? 0x01 : 0x04;
+                        dp_inits[dp_init_cnt].len = 1;
+                        dp_inits[dp_init_cnt].value[0] = v;
+                        ok = 1;
+                    }
+                }
+                else if (t == '2')
+                {
+                    uint8_t b0, b1, b2, b3;
+                    if (parse_hex_byte(entry + 5, &b0) && parse_hex_byte(entry + 7, &b1) &&
+                        parse_hex_byte(entry + 9, &b2) && parse_hex_byte(entry + 11, &b3))
+                    {
+                        dp_inits[dp_init_cnt].dp_type = 0x02;
+                        dp_inits[dp_init_cnt].len = 4;
+                        dp_inits[dp_init_cnt].value[0] = b0;
+                        dp_inits[dp_init_cnt].value[1] = b1;
+                        dp_inits[dp_init_cnt].value[2] = b2;
+                        dp_inits[dp_init_cnt].value[3] = b3;
+                        ok = 1;
+                    }
+                }
+                if (ok) { dp_init_cnt++; }
+            }
+        }
+        else if (entry[0] == 'R' && entry[1] == 'T')
+        {
+            // RT<hh> - relay driven through the Tuya secondary MCU.
+            // <hh> = datapoint id in hex (RT18 -> DP 24).
+            uint8_t dpid = 0;
+            if (parse_hex_byte(entry + 2, &dpid) && dpid != 0)
+            {
+                if (relay_clusters_cnt >= MAX_RELAYS || relays_cnt >= MAX_RELAYS)
+                {
+                    printf("Too many relays, ignoring %s\r\n", entry);
+                    continue;
+                }
+                relays[relays_cnt].pin = HAL_INVALID_PIN;
+                relays[relays_cnt].off_pin = HAL_INVALID_PIN;
+                relays[relays_cnt].on_high = 1;
+                relays[relays_cnt].is_latching = 0;
+                relays[relays_cnt].dp_id = dpid;
+
+                // RT<state><countdown> - the second pair is optional
+                uint8_t cdp = 0;
+                if (entry[4] != '\0' && parse_hex_byte(entry + 4, &cdp))
+                {
+                    relays[relays_cnt].countdown_dp_id = cdp;
+                }
+
+                relay_clusters[relay_clusters_cnt].relay_idx = relay_clusters_cnt;
+                relay_clusters[relay_clusters_cnt].relay = &relays[relays_cnt];
+
+                relays_cnt++;
+                relay_clusters_cnt++;
+            }
+        }
+        else if (entry[0] == 'P' && entry[1] == 'T')
+        {
+            // PT<hh> - device-wide power-on-behaviour datapoint
+            uint8_t dp = 0;
+            if (parse_hex_byte(entry + 2, &dp)) { g_power_on_dp_id = dp; }
+        }
+        else if (entry[0] == 'W')
+        {
+            // W<tx><rx> - UART pins towards the secondary MCU.
+            // TLSR8258 pinmux: TX = A2 B1 C2 D0 D3 D7 / RX = A0 B0 B7 C3 C5 D6
+            mcu_uart_config.tx_pin = hal_gpio_parse_pin(entry + 1);
+            mcu_uart_config.rx_pin = hal_gpio_parse_pin(entry + 3);
+        }
+        else if (entry[0] == 'Y')
+        {
+            // Y<n> - baudrate of that UART (default 115200)
+            mcu_uart_config.baudrate = parse_int(entry + 1);
+        }
+        else if (entry[0] == 'R' && entry[1] >= 'A' && entry[1] <= 'D')
+        {
+            if (relay_clusters_cnt >= MAX_RELAYS || relays_cnt >= MAX_RELAYS)
+            {
+                printf("Too many relays, ignoring %s\r\n", entry);
+                continue;
+            }
             hal_gpio_pin_t pin = hal_gpio_parse_pin(entry + 1);
             hal_gpio_init(pin, 0, HAL_GPIO_PULL_NONE);
 
@@ -510,6 +657,12 @@ void parse_config()
 
     hal_ota_cluster_setup(&endpoints[0].clusters[endpoints[0].cluster_count]);
     endpoints[0].cluster_count++;
+
+    /* Lets the coordinator hand us a clock. The secondary MCU asks for
+       the time and misbehaves without it; we have no RTC and no way to
+       ask, so we accept a write instead. */
+    static zigbee_time_cluster time_cluster;
+    time_cluster_add_to_endpoint(&time_cluster, &endpoints[0]);
 
     // Add battery cluster for battery-powered devices
     if (battery.pin != HAL_INVALID_PIN)

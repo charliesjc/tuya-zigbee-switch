@@ -20,6 +20,11 @@ typedef struct
   uint8_t data_bits;
   uint8_t stop_bits;
   uint8_t parity;
+  /* Pin ids for the UART towards the secondary MCU. 0 = use platform default.
+     On Telink these must be one of the UART pinmux options:
+       TX: PA2 PB1 PC2 PD0 PD3 PD7   RX: PA0 PB0 PB7 PC3 PC5 PD6            */
+  uint32_t tx_pin;
+  uint32_t rx_pin;
 } hal_uart_config_t;
 
 /**

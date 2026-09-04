@@ -87,6 +87,7 @@ DEVICE_DEFS := \
 	-DFILE_VERSION=$(FILE_VERSION) \
 	-DNVM_MIGRATIONS_VERSION=$(NVM_MIGRATIONS_VERSION) \
 	-DDEFAULT_CONFIG="$(CONFIG_STR)" \
+	-DDEFAULT_DP_CONFIG="$(DP_CONFIG_STR)" \
 	-DIMAGE_TYPE=$(IMAGE_TYPE) \
 	-DHAL_TELINK \
 	$(TEL_CHIP) 
@@ -163,6 +164,9 @@ COMMON_SOURCES := \
 	$(SRC_DIR)/zigbee/dimmer_cluster.c \
 	$(SRC_DIR)/zigbee/general_commands.c \
 	$(SRC_DIR)/zigbee/group_cluster.c \
+	$(SRC_DIR)/zigbee/time_cluster.c \
+	$(SRC_DIR)/zigbee/tuya_dp_relay.c \
+	$(SRC_DIR)/zigbee/dp_attr.c \
 	$(SRC_DIR)/zigbee/relay_cluster.c \
 	$(SRC_DIR)/zigbee/switch_cluster.c \
 	$(SRC_DIR)/zigbee/cover_switch_cluster.c \

@@ -1,15 +1,54 @@
 #include "zigbee/tuya_secondary_mcu.h"
 #include "hal/uart.h"
+#include "hal/printf_selector.h"
 
 #include <stdbool.h>
 #include <string.h>
 
 static bool g_tuya_secondary_mcu_enabled = false;
 
+/* A write the peripheral will not accept means the link is wedged: the
+   pinmux was reassigned under us, the clock moved, an earlier re-init left
+   it odd. Silence is NOT evidence of that -- an event driven MCU is quiet
+   by design, and a timer based watchdog would churn the UART for nothing.
+   Repeated write failures are, so that is the trigger. */
+#define UART_FAILURES_BEFORE_REINIT    3
+
+static hal_uart_config_t g_uart_config = {0};
+static uint8_t           uart_write_failures = 0;
+
+static void tuya_uart_note_write(int ok)
+{
+  if (ok)
+  {
+    uart_write_failures = 0;
+    return;
+  }
+  if (++uart_write_failures < UART_FAILURES_BEFORE_REINIT) { return; }
+  printf("Secondary MCU link stuck, reinitialising UART\r\n");
+  uart_write_failures = 0;
+  hal_uart_deinit();
+  hal_uart_init(&g_uart_config);
+}
+
 // Outgoing sequence number, cycling 0..0xfff0 per the Tuya protocol. The
 // original firmware hardcoded 0x0100 for module->MCU frames, but the protocol
 // expects a proper incrementing sequence on both directions.
 static uint16_t g_tx_seq = 0;
+/* Set while a 0x05 report is being dispatched, see the header. */
+static uint8_t g_report_is_passive = 0;
+
+uint16_t tuya_secondary_mcu_next_tx_seq(void)
+{
+  uint16_t seq = g_tx_seq;
+  g_tx_seq = (g_tx_seq >= 0xFFF0) ? 0 : (uint16_t)(g_tx_seq + 1);
+  return seq;
+}
+
+uint8_t tuya_secondary_mcu_report_is_passive(void)
+{
+  return g_report_is_passive;
+}
 
 static uint8_t tuya_checksum(const uint8_t *buf, uint16_t len)
 {
@@ -83,7 +122,11 @@ int tuya_secondary_mcu_encode_frame(const tuya_secondary_mcu_frame_t *frame,
 int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
                                     tuya_secondary_mcu_frame_t *frame)
 {
-  if (!raw || !frame || raw_len < 12)
+  /* Smallest valid frame is header(8) + checksum(1); command frames such as
+     0x20 "query network status" carry no payload at all. The previous
+     implementation required 12 bytes and unconditionally parsed a datapoint
+     header, so every non-DP command was silently dropped. */
+  if (!raw || !frame || raw_len < 9)
   {
     return -1;
   }
@@ -95,43 +138,57 @@ int tuya_secondary_mcu_decode_frame(const uint8_t *raw, uint16_t raw_len,
     return -1;
   }
 
-  /* Header layout: 55 AA 02 <seq_hi> <seq_lo> <cmd> <dlen_hi> <dlen_lo> ... */
+  /* 55 AA 02 <seq_hi> <seq_lo> <cmd> <dlen_hi> <dlen_lo> <data...> <chk> */
   frame->seq = (uint16_t)((raw[3] << 8) | raw[4]);
   frame->cmd = raw[5];
 
-  // dlen and value_len are big-endian in the captured frames (e.g. 00 05 = 5).
   uint16_t dlen = (uint16_t)((raw[6] << 8) | raw[7]);
   uint16_t payload_off = 8;
 
-  if (raw_len < payload_off + dlen + 1)
+  if (raw_len < (uint16_t)(payload_off + dlen + 1))
   {
     return -1;
   }
 
-  frame->dpid = raw[payload_off++];
-  frame->dp_type = raw[payload_off++];
-  frame->value_len = (uint16_t)((raw[payload_off] << 8) | raw[payload_off + 1]);
-  payload_off += 2;
-
-  if (frame->value_len > sizeof(frame->value))
+  frame->checksum = raw[payload_off + dlen];
+  if (frame->checksum != tuya_checksum(raw, (uint16_t)(payload_off + dlen)))
   {
     return -1;
   }
 
-  if (frame->value_len > 0)
+  if (frame->cmd == TUYA_MCU_CMD_REPORT || frame->cmd == TUYA_MCU_CMD_WRITE ||
+      frame->cmd == TUYA_MCU_CMD_REPORT_PASSIVE)
   {
-    memcpy(frame->value, &raw[payload_off], frame->value_len);
-    payload_off += frame->value_len;
+    /* Datapoint frame: dpid | type | len(2) | value */
+    if (dlen < 4)
+    {
+      return -1;
+    }
+    frame->dpid = raw[payload_off];
+    frame->dp_type = raw[payload_off + 1];
+    frame->value_len = (uint16_t)((raw[payload_off + 2] << 8) | raw[payload_off + 3]);
+    if (frame->value_len > sizeof(frame->value) ||
+        frame->value_len > (uint16_t)(dlen - 4))
+    {
+      return -1;
+    }
+    if (frame->value_len > 0)
+    {
+      memcpy(frame->value, &raw[payload_off + 4], frame->value_len);
+    }
+  }
+  else
+  {
+    /* Generic command frame: the payload is raw bytes. */
+    frame->dpid = 0;
+    frame->dp_type = 0;
+    frame->value_len = dlen > sizeof(frame->value) ? sizeof(frame->value) : dlen;
+    if (frame->value_len > 0)
+    {
+      memcpy(frame->value, &raw[payload_off], frame->value_len);
+    }
   }
 
-  frame->checksum = raw[payload_off];
-
-  if (frame->checksum != tuya_checksum(raw, payload_off))
-  {
-    return -1;
-  }
-
-  (void)dlen;
   return 0;
 }
 
@@ -173,9 +230,40 @@ void tuya_secondary_mcu_disable(void)
 
 int tuya_secondary_mcu_init(const hal_uart_config_t *cfg)
 {
+  if (cfg != NULL) { g_uart_config = *cfg; }
   hal_uart_init(cfg);
   tuya_secondary_mcu_enable();
   return 0;
+}
+
+int tuya_secondary_mcu_send_cmd(uint8_t cmd, uint16_t seq,
+                                const uint8_t *payload, uint16_t len)
+{
+  if (!tuya_secondary_mcu_is_enabled() || len > 32)
+  {
+    return -1;
+  }
+
+  uint8_t buf[48];
+  uint16_t idx = 0;
+  buf[idx++] = 0x55;
+  buf[idx++] = 0xAA;
+  buf[idx++] = 0x02;
+  buf[idx++] = (uint8_t)(seq >> 8);
+  buf[idx++] = (uint8_t)seq;
+  buf[idx++] = cmd;
+  buf[idx++] = (uint8_t)(len >> 8);
+  buf[idx++] = (uint8_t)len;
+  for (uint16_t i = 0; i < len; i++)
+  {
+    buf[idx++] = payload[i];
+  }
+  uint8_t chk = tuya_checksum(buf, idx);
+  buf[idx++] = chk;
+
+  int ok = (hal_uart_write(buf, idx, NULL) == HAL_UART_OK);
+  tuya_uart_note_write(ok);
+  return ok ? 0 : -1;
 }
 
 int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
@@ -194,7 +282,9 @@ int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
   {
     return status;
   }
-  return hal_uart_write(buffer, written, NULL) == HAL_UART_OK ? 0 : -1;
+  int ok = (hal_uart_write(buffer, written, NULL) == HAL_UART_OK);
+  tuya_uart_note_write(ok);
+  return ok ? 0 : -1;
 }
 
 static tuya_secondary_mcu_dp_report_callback_t g_dp_report_callback = NULL;
@@ -204,6 +294,12 @@ void tuya_secondary_mcu_register_dp_report_callback(
     tuya_secondary_mcu_dp_report_callback_t callback)
 {
   g_dp_report_callback = callback;
+}
+
+tuya_secondary_mcu_dp_report_callback_t
+tuya_secondary_mcu_get_dp_report_callback(void)
+{
+  return g_dp_report_callback;
 }
 
 void tuya_secondary_mcu_register_command_callback(
@@ -262,14 +358,18 @@ static void tuya_secondary_mcu_process_assembly(void)
 
     if (decode_status == 0)
     {
-      if (frame.cmd == TUYA_MCU_CMD_REPORT)
+      if (frame.cmd == TUYA_MCU_CMD_REPORT ||
+          frame.cmd == TUYA_MCU_CMD_REPORT_PASSIVE)
       {
+        g_report_is_passive =
+            (frame.cmd == TUYA_MCU_CMD_REPORT_PASSIVE) ? 1 : 0;
         // DP state report (button press, write ack), e.g. physical button.
         if (g_dp_report_callback != NULL)
         {
           g_dp_report_callback(frame.dpid, frame.dp_type, frame.value,
                                frame.value_len);
         }
+        g_report_is_passive = 0;
       }
       else
       {
@@ -277,7 +377,7 @@ static void tuya_secondary_mcu_process_assembly(void)
         // network / rejoin, ...). Let the application decide.
         if (g_command_callback != NULL)
         {
-          g_command_callback(frame.cmd, frame.value, frame.value_len);
+          g_command_callback(frame.cmd, frame.seq, frame.value, frame.value_len);
         }
       }
     }

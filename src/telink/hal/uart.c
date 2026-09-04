@@ -69,30 +69,49 @@ static void uart_dma_rx_callback(void) {
     }
 }
 
+static uint32_t g_tx_pin = MCU_UART_TX_PIN;
+static uint32_t g_rx_pin = MCU_UART_RX_PIN;
+static uint32_t g_baud   = MCU_UART_BAUDRATE;
+
+static uint8_t uart_tx_pin_is_valid(uint32_t p) {
+    return p == UART_TX_PA2 || p == UART_TX_PB1 || p == UART_TX_PC2 ||
+           p == UART_TX_PD0 || p == UART_TX_PD3 || p == UART_TX_PD7;
+}
+
+static uint8_t uart_rx_pin_is_valid(uint32_t p) {
+    return p == UART_RX_PA0 || p == UART_RX_PB0 || p == UART_RX_PB7 ||
+           p == UART_RX_PC3 || p == UART_RX_PC5 || p == UART_RX_PD6;
+}
+
 void hal_uart_init(const hal_uart_config_t *cfg) {
+    if (cfg != NULL) {
+        if (uart_tx_pin_is_valid(cfg->tx_pin)) { g_tx_pin = cfg->tx_pin; }
+        if (uart_rx_pin_is_valid(cfg->rx_pin)) { g_rx_pin = cfg->rx_pin; }
+        if (cfg->baudrate != 0)                { g_baud   = cfg->baudrate; }
+    }
     (void)cfg;
 
     /* drv_uart_init sets up the DMA receive path and registers the ISR
      * callback. It enables both RX and TX DMA; we re-disable TX DMA below so
      * the NDMA TX path in hal_uart_write keeps working. */
-    uart_gpio_set(MCU_UART_TX_PIN, MCU_UART_RX_PIN);
+    uart_gpio_set(g_tx_pin, g_rx_pin);
 
     /* Pull the UART lines high and strengthen the TX drive. Without this, a
      * passive tap (e.g. a USB-serial adapter with a pull-down on its input)
      * can clamp the idle level low and block data flowing past the tap point
      * to the MCU/module. 10K pull-ups hold the idle-high level; strong drive
      * keeps the TX line from being pulled down by an adapter's input. */
-    gpio_setup_up_down_resistor(MCU_UART_TX_PIN, PM_PIN_PULLUP_10K);
-    gpio_setup_up_down_resistor(MCU_UART_RX_PIN, PM_PIN_PULLUP_10K);
-    gpio_set_data_strength(MCU_UART_TX_PIN, 1);
+    gpio_setup_up_down_resistor(g_tx_pin, PM_PIN_PULLUP_10K);
+    gpio_setup_up_down_resistor(g_rx_pin, PM_PIN_PULLUP_10K);
+    gpio_set_data_strength(g_tx_pin, 1);
 
-    if (drv_uart_init(MCU_UART_BAUDRATE, g_uart_rx_dma_buf,
+    if (drv_uart_init(g_baud, g_uart_rx_dma_buf,
                       UART_RX_DMA_BUF_SIZE, uart_dma_rx_callback) != 0) {
         /* Fall back to plain NDMA init so TX still works even if the DMA RX
          * setup failed. */
         uart_reset();
-        uart_gpio_set(MCU_UART_TX_PIN, MCU_UART_RX_PIN);
-        uart_init_baudrate(MCU_UART_BAUDRATE, CLOCK_SYS_CLOCK_HZ, PARITY_NONE,
+        uart_gpio_set(g_tx_pin, g_rx_pin);
+        uart_init_baudrate(g_baud, CLOCK_SYS_CLOCK_HZ, PARITY_NONE,
                            STOP_BIT_ONE);
     }
     uart_dma_enable(1, 0); /* RX DMA on, TX stays NDMA */
@@ -117,6 +136,27 @@ void hal_uart_flush(void) {
     uart_ndma_clear_tx_index();
 }
 
+/* The watchdog fires at one second. An unbounded spin here turns any
+   stalled UART -- wrong pinmux, bad clock, a peripheral left in a odd
+   state by a re-init -- into a reboot, and every relay command and
+   datapoint write passes through this path. Give up instead: a dropped
+   frame is recoverable, a reset is not.
+
+   The limit is a spin count rather than a timer because this runs with
+   interrupts free and must stay cheap; it is sized far above the ~1 ms a
+   byte needs at 9600 baud and far below the watchdog window. */
+#define UART_TX_SPIN_LIMIT    2000000u
+
+static uint8_t uart_tx_wait_idle(void) {
+    uint32_t spins = 0;
+    while (uart_tx_is_busy()) {
+        if (++spins > UART_TX_SPIN_LIMIT) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 hal_uart_status_t hal_uart_write(const uint8_t *data, uint16_t len,
                                  uint16_t *written) {
     if (!data && len != 0) {
@@ -127,14 +167,18 @@ hal_uart_status_t hal_uart_write(const uint8_t *data, uint16_t len,
     for (uint16_t i = 0; i < len; i++) {
         // Wait for the previous byte to finish shifting out before writing the
         // next one. NDMA mode cycles through the four TX data registers.
-        while (uart_tx_is_busy()) {
+        if (!uart_tx_wait_idle()) {
+            if (written) { *written = actual; }
+            return HAL_UART_ERR_IO;
         }
         uart_ndma_send_byte(data[i]);
         actual++;
     }
     // Wait for the final byte to be fully transmitted before returning, so a
     // subsequent read/command isn't corrupted by an in-flight frame.
-    while (uart_tx_is_busy()) {
+    if (!uart_tx_wait_idle()) {
+        if (written) { *written = actual; }
+        return HAL_UART_ERR_IO;
     }
 
     if (written) {

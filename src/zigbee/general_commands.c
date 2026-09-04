@@ -7,6 +7,7 @@
 #include "poll_control_cluster.h"
 #include "relay_cluster.h"
 #include "switch_cluster.h"
+#include "time_cluster.h"
 
 static void zigbee_on_attr_change(uint8_t endpoint, uint16_t cluster_id,
                                   uint16_t attribute_id)
@@ -38,6 +39,10 @@ static void zigbee_on_attr_change(uint8_t endpoint, uint16_t cluster_id,
         // endpoints it does not own (StartUpOnOff is writable on both).
         relay_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
         dimmer_cluster_callback_attr_write_trampoline(endpoint, attribute_id);
+    }
+    else if (cluster_id == ZCL_CLUSTER_TIME)
+    {
+        time_cluster_on_write_attr(attribute_id);
     }
     else if (cluster_id == ZCL_CLUSTER_WINDOW_COVERING)
     {

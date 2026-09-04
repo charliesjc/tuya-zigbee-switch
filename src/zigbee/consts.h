@@ -42,7 +42,15 @@
 #define ZCL_ATTR_BASIC_DISABLE_LOCAL_CFG          0x0014
 #define ZCL_ATTR_BASIC_SW_BUILD_ID                0x4000
 
+/* genTime, so the coordinator can give the device a real clock. */
+#define ZCL_CLUSTER_TIME                          0x000a
+#define ZCL_ATTR_TIME_TIME                        0x0000
+#define ZCL_ATTR_TIME_STATUS                      0x0001
+#define ZCL_ATTR_TIME_LOCAL_TIME                  0x0007
+
 #define ZCL_ATTR_BASIC_DEVICE_CONFIG              0xff00
+#define ZCL_ATTR_BASIC_DP_CONFIG                  0xff11
+#define ZCL_ATTR_BASIC_DEVICE_CONFIG_EXT          0xff16
 #define ZCL_ATTR_BASIC_STATUS_LED_STATE           0xff01
 #define ZCL_ATTR_BASIC_MULTI_PRESS_RESET_COUNT    0xff02
 
@@ -60,6 +68,7 @@
 // OnOff cluster
 
 #define ZCL_ATTR_ONOFF                    0x0000
+#define ZCL_ATTR_ONOFF_ON_TIME                    0x4001
 #define ZCL_ATTR_START_UP_ONOFF           0x4003
 
 #define ZCL_ATTR_ONOFF_INDICATOR_MODE     0xff01

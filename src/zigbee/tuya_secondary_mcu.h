@@ -41,6 +41,9 @@ typedef enum {
 
 typedef enum {
     TUYA_MCU_CMD_WRITE  = 0x04,
+    /* Report the MCU sends back after executing a command, and the form it
+     * uses to answer a query-all (0x28). Carries datapoints just like 0x06. */
+    TUYA_MCU_CMD_REPORT_PASSIVE = 0x05,
     TUYA_MCU_CMD_REPORT = 0x06,
 } tuya_mcu_cmd_t;
 
@@ -78,6 +81,21 @@ int tuya_secondary_mcu_send_dp(uint8_t dpid, uint8_t dp_type,
                                uint16_t *written);
 
 /**
+ * Send an arbitrary command frame. Responses must echo the request's seq.
+ */
+/** Next sequence number for a module-initiated frame. Responses must echo
+ *  the request seq instead; only use this for frames we start. */
+uint16_t tuya_secondary_mcu_next_tx_seq(void);
+
+/** True while dispatching a passive report (0x05), which is the MCU
+ *  answering something we sent. A passive report is never a fresh key
+ *  press, so consumers must not treat it as one. */
+uint8_t tuya_secondary_mcu_report_is_passive(void);
+
+int tuya_secondary_mcu_send_cmd(uint8_t cmd, uint16_t seq,
+                                const uint8_t *payload, uint16_t len);
+
+/**
  * Write a DP frame directly to the secondary MCU UART.
  */
 int tuya_secondary_mcu_write_dp(uint8_t dpid, uint8_t dp_type,
@@ -96,11 +114,16 @@ typedef void (*tuya_secondary_mcu_dp_report_callback_t)(uint8_t dpid,
 void tuya_secondary_mcu_register_dp_report_callback(
     tuya_secondary_mcu_dp_report_callback_t callback);
 
+/** Current DP report callback, so a new handler can chain to the previous. */
+tuya_secondary_mcu_dp_report_callback_t
+tuya_secondary_mcu_get_dp_report_callback(void);
+
 /**
  * Non-DP command from the secondary MCU. `cmd` uses the tuya_mcu_cmd_t range
  * (e.g. 0x03 leave/rejoin which is sent when the physical button is held).
  */
 typedef void (*tuya_secondary_mcu_command_callback_t)(uint8_t cmd,
+                                                      uint16_t seq,
                                                       const uint8_t *data,
                                                       uint16_t data_len);
 
