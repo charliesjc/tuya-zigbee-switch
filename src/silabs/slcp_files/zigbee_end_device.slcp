@@ -55,6 +55,9 @@ source:
 - {path: ../../zigbee/battery_cluster.c}
 - {path: ../../zigbee/general_commands.c}
 - {path: ../../zigbee/group_cluster.c}
+- {path: ../../zigbee/time_cluster.c}
+- {path: ../../zigbee/tuya_dp_relay.c}
+- {path: ../../zigbee/dp_attr.c}
 - {path: ../../zigbee/relay_cluster.c}
 - {path: ../../zigbee/switch_cluster.c}
 - {path: ../../zigbee/cover_switch_cluster.c}
@@ -71,6 +74,9 @@ source:
 - {path: ../../zigbee/zigbee_commands.h}
 - {path: ../../zigbee/general_commands.h}
 - {path: ../../zigbee/group_cluster.h}
+- {path: ../../zigbee/time_cluster.h}
+- {path: ../../zigbee/tuya_dp_relay.h}
+- {path: ../../zigbee/dp_attr.h}
 include:
 - {path: ../../.}
 sdk: {id: gecko_sdk, version: 4.4.6}
